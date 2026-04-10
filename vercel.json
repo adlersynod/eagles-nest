@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://adlers-eagle-scout.loca.lt/:path*"
+      "destination": "https://adlers-eagle-scout.loca.lt/api/:path*"
     }
   ]
 }
