@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://receipt-next-blessed-financing.trycloudflare.com/:path*"
+      "destination": "https://adlers-mac-mini.tail58c644.ts.net/:path*"
     }
   ]
 }
