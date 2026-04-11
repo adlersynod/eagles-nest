@@ -11,57 +11,19 @@ type CampgroundResult = {
   vacancyNote: string
 }
 
-// Try to parse Campendium search results
-async function fetchCampendium(city: string): Promise<CampgroundResult[]> {
-  try {
-    const res = await fetch(
-      `https://www.campendium.com/search?q=${encodeURIComponent(city)}&type=rv`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; EaglesNest/1.0)',
-          Accept: 'text/html',
-        },
-        next: { revalidate: 3600 },
-      }
-    )
-    if (!res.ok) return []
-    const html = await res.text()
-    // Campendium renders via JS — static HTML won't have results.
-    // Try extracting JSON-LD or structured data
-    const results: CampgroundResult[] = []
-    const nameMatches = [...html.matchAll(/<h2[^>]*class="[^"]*listing-title[^"]*"[^>]*>([^<]+)<\/h2>/gi)]
-    const ratingMatches = [...html.matchAll(/class="[^"]*rating[^"]*"[^>]*>([^<]+)<\/[^>]+>/gi)]
-    const priceMatches = [...html.matchAll(/class="[^"]*price[^"]*"[^>]*>\$([^<]+)<\/[^>]+>/gi)]
-
-    for (let i = 0; i < Math.min(nameMatches.length, 8); i++) {
-      results.push({
-        name: nameMatches[i]?.[1]?.trim() || '',
-        rating: ratingMatches[i] ? parseFloat(ratingMatches[i][1]) || null : null,
-        price: priceMatches[i] ? `$${priceMatches[i][1]?.trim()}` : null,
-        amenities: [],
-        photoUrl: null,
-        bookingUrl: null,
-        vacancyStatus: 'unknown',
-        vacancyNote: 'Check website for availability',
-      })
-    }
-    return results
-  } catch {
-    return []
-  }
-}
-
 // Fetch from Recreation.gov public search API
+// Note: fq=type:campground returns 0 results, so we search with "campground" keyword
+// and filter manually for camp-related results
 async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
   try {
+    const query = `${city} campground`
     const res = await fetch(
-      `https://www.recreation.gov/api/search?query=${encodeURIComponent(city)}&fq=type:campground&rows=8`,
+      `https://www.recreation.gov/api/search?query=${encodeURIComponent(query)}&rows=8`,
       {
         headers: {
           'User-Agent': 'EaglesNest/1.0',
           Accept: 'application/json',
         },
-        next: { revalidate: 3600 },
       }
     )
     if (!res.ok) return []
@@ -69,14 +31,21 @@ async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
     const results: CampgroundResult[] = []
 
     const items = data?.results || []
+    const campKeywords = ['camp', 'rv', 'park', 'camping', 'trailer', 'cabin']
+
     for (const item of items.slice(0, 8)) {
-      const name: string = item?.title || item?.name || ''
-      if (!name) continue
+      const title = (item?.title || item?.name || '').toLowerCase()
+      const activities = (item?.activities || [])
+        .map((a: { activity_name: string }) => a.activity_name.toLowerCase())
+        .join(' ')
+
+      // Skip non-campground results
+      if (!campKeywords.some((k) => title.includes(k) || activities.includes(k))) continue
 
       // Parse available sites count if present
       let vacancyStatus: CampgroundResult['vacancyStatus'] = 'unknown'
       let vacancyNote = 'Check website for availability'
-      const availCount = item?.available_sites_count || item?.campsites?.length || 0
+      const availCount = item?.accessible_campsites_count || 0
       if (typeof availCount === 'number') {
         if (availCount > 5) {
           vacancyStatus = 'available'
@@ -86,22 +55,43 @@ async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
           vacancyNote = `Only ${availCount} sites left`
         } else {
           vacancyStatus = 'likely_full'
-          vacancyNote = 'Likely full — check for cancellations'
+          vacancyNote = 'Check for cancellations'
         }
       }
 
       results.push({
-        name,
-        rating: item?.rating ? parseFloat(item.rating) || null : null,
+        name: item?.title || item?.name || '',
+        rating: null,
         price: item?.price || null,
-        amenities: item?.amenities || [],
-        photoUrl: item?.image_url || item?.photo_url || null,
-        bookingUrl: item?.url || `https://www.recreation.gov/search?query=${encodeURIComponent(city)}`,
+        amenities: (item?.activities || []).map((a: { activity_name: string }) => a.activity_name),
+        photoUrl: item?.related_images?.[0]?.url || null,
+        bookingUrl: item?.url || null,
         vacancyStatus,
         vacancyNote,
       })
     }
     return results
+  } catch {
+    return []
+  }
+}
+
+// Campendium HTML scraping (unreliable — JS-rendered, CORS blocked)
+async function fetchCampendium(city: string): Promise<CampgroundResult[]> {
+  try {
+    const res = await fetch(
+      `https://www.campendium.com/search?q=${encodeURIComponent(city)}&type=rv`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; EaglesNest/1.0)',
+          Accept: 'text/html',
+        },
+      }
+    )
+    if (!res.ok) return []
+    // HTML scraping is unreliable since content is JS-rendered
+    // Just return empty — Recreation.gov is the primary source
+    return []
   } catch {
     return []
   }
@@ -117,10 +107,10 @@ export async function GET(request: NextRequest) {
 
   const citySanitized = city.replace(/[^a-zA-Z0-9\s\-\.,']/g, '').trim()
 
-  // Try Recreation.gov first (has a public API with CORS support)
+  // Try Recreation.gov first
   let results = await fetchRecreationGov(citySanitized)
 
-  // Fall back to Campendium
+  // Fall back to Campendium (currently returns empty due to JS rendering)
   if (results.length === 0) {
     results = await fetchCampendium(citySanitized)
   }
