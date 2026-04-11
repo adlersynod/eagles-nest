@@ -41,31 +41,6 @@ body {
   opacity: 0.65;
 }
 
-.logo-img {
-  width: 80px;
-  height: auto;
-  margin-bottom: 0.5rem;
-  display: inline-block;
-}
-
-.logo-text {
-  display: inline-block;
-  text-align: left;
-  vertical-align: middle;
-}
-
-.logo-text h1 {
-  margin-bottom: 0;
-}
-
-.logo-text .tagline {
-  font-size: 0.75rem;
-  color: #d4a017;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  opacity: 1;
-}
-
 /* ── Location Input ────────────────────────────── */
 .input-row {
   display: flex;
