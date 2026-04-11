@@ -80,16 +80,22 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
     const data = await response.json()
     const rawContent = data?.choices?.[0]?.message
 
-    // MiniMax-M2.7 structured output — content may be null, reasoning has the text
+    // MiniMax-M2.7 sends response as structured content in 'reasoning' field
+    // The content field is null but reasoning has the actual response text
     let content: string | null = null
     if (typeof rawContent === 'string') {
       content = rawContent
     } else if (rawContent && typeof rawContent === 'object') {
-      const msg = rawContent as { content?: string; reasoning?: string }
-      content = (msg.content || msg.reasoning || null) as string | null
+      const msg = rawContent as Record<string, unknown>
+      // reasoning field contains the actual JSON/text response
+      if (msg['reasoning'] && typeof msg['reasoning'] === 'string') {
+        content = msg['reasoning'] as string
+      } else if (msg['content'] && typeof msg['content'] === 'string') {
+        content = msg['content'] as string
+      }
     }
 
-    if (!content) {
+    if (!content || content.trim() === '') {
       return NextResponse.json({ error: 'No plan generated. Please try again.' }, { status: 500 })
     }
 
