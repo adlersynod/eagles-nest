@@ -2,8 +2,40 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifySessionToken } from '@/lib/auth'
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions'
-const MODEL = 'minimax/MiniMax-M2.7'
-const MAX_TOKENS = 2000
+const MODEL = 'google/gemini-3.1-flash-lite-preview'
+const MAX_TOKENS = 1200
+
+// JSON schema forces model to output exactly our plan structure with no deviations
+const PLAN_SCHEMA = {
+  type: 'json_schema' as const,
+  json_schema: {
+    name: 'travel_plan',
+    strict: true,
+    schema: {
+      type: 'object' as const,
+      properties: {
+        stops: {
+          type: 'array' as const,
+          items: {
+            type: 'object' as const,
+            properties: {
+              time: { type: 'string' as const },
+              type: { type: 'string' as const, enum: ['coffee', 'activity', 'meal', 'evening'] },
+              placeName: { type: 'string' as const },
+              address: { type: 'string' as const },
+              walkFromPrevious: { type: 'string' as const },
+              notes: { type: 'string' as const },
+              rating: { type: 'number' as const },
+              mapsUrl: { type: 'string' as const },
+            },
+            required: ['time', 'type', 'placeName', 'address', 'walkFromPrevious', 'notes', 'rating', 'mapsUrl'],
+          },
+        },
+      },
+      required: ['stops'],
+    },
+  },
+}
 
 async function getSessionFromRequest(req: NextRequest): Promise<string | null> {
   return req.cookies.get('eagles_nest_session')?.value ?? null
@@ -23,10 +55,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'city and dayType are required.' }, { status: 400 })
     }
 
-    // Route through OpenRouter using OPENAI_API_KEY (sk-or-v1 OpenRouter key)
     const apiKey = process.env.OPENAI_API_KEY || process.env.MINIMAX_API_KEY
     if (!apiKey) {
-      return NextResponse.json({ error: 'AI service not configured. Add OPENAI_API_KEY to Vercel env vars.' }, { status: 500 })
+      return NextResponse.json({ error: 'AI service not configured.' }, { status: 500 })
     }
 
     const dayTypeLabels: Record<string, string> = {
@@ -43,15 +74,12 @@ export async function POST(req: NextRequest) {
         ).join('\n')
       : 'No places loaded — suggest real local spots.'
 
-    const systemPrompt = `Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city}. Return EXACTLY 5 stops as JSON: {"stops":[{"time":"","type":"","placeName":"","address":"","walkFromPrevious":"","notes":"","rating":0,"mapsUrl":""}]}. No markdown, no explanation.
-Times: specific (8:30 AM, 12:45 PM). NEVER chains. Prefer the provided places list. Include real addresses.`
+    const systemPrompt = `Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exactly 5 stops. Follow the required JSON schema exactly — each stop needs: time (specific like 12:30 PM), type (coffee/activity/meal/evening), placeName, address, walkFromPrevious (or "Starting point"), notes, rating, mapsUrl (Google Maps walking directions URL). Never suggest chains. Prefer the provided places list.`
 
     const userPrompt = `City: ${city} | Type: ${dayType} | Dates: ${startDate || 'flexible'}–${endDate || 'flexible'}
-Places: ${contextPlacesText}
-Respond with only valid JSON starting with {`
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 55_000);
+Places:
+${contextPlacesText}
+Return JSON only.`
 
     const response = await fetch(OPENROUTER_BASE, {
       method: 'POST',
@@ -69,69 +97,39 @@ Respond with only valid JSON starting with {`
         ],
         max_tokens: MAX_TOKENS,
         temperature: 0.8,
+        response_format: PLAN_SCHEMA,
       }),
-      signal: controller.signal as RequestInit['signal'],
     })
-    clearTimeout(timeout)
 
     if (!response.ok) {
       const errText = await response.text()
-      console.error('OpenRouter/MiniMax error:', response.status, errText)
+      console.error('OpenRouter/Gemini error:', response.status, errText)
       if (response.status === 429) {
-        return NextResponse.json({ error: 'AI rate limit reached. Please wait a moment and try again.' }, { status: 429 })
+        return NextResponse.json({ error: 'AI rate limit reached. Please try again.' }, { status: 429 })
       }
       return NextResponse.json({ error: `AI service error (${response.status}). Please try again.` }, { status: 502 })
     }
 
     const data = await response.json()
-    console.error('Plan API - response data:', JSON.stringify(data).substring(0, 300))
     const rawContent = data?.choices?.[0]?.message
 
-    // MiniMax-M2.7: content field has the clean JSON response
+    // With response_format schema, model MUST return valid JSON matching our stops structure
     let content: string | null = null
     if (rawContent && typeof rawContent === 'object') {
-      const msg = rawContent as Record<string, unknown>
-      const contentField = msg['content']
-      const reasoningField = msg['reasoning']
-      if (typeof contentField === 'string' && contentField.trim().length > 0) {
-        content = contentField
-      } else if (typeof reasoningField === 'string' && reasoningField.trim().length > 0) {
-        // MiniMax-Text-01 sometimes returns the actual text in the reasoning field
-        content = reasoningField
-      } else {
-        console.error('Plan API - content field issue:', JSON.stringify(msg).substring(0, 300))
-      }
+      content = (rawContent as Record<string, unknown>)['content'] as string || null
     } else if (typeof rawContent === 'string') {
       content = rawContent
     }
 
-    console.error('Plan API - extracted content length:', content ? content.length : 'null')
-
-    if (!content || content.trim() === '') {
-      console.error('Plan API - empty content, rawContent:', JSON.stringify(rawContent)?.substring(0, 300))
-      return NextResponse.json({ error: 'No plan generated. The AI returned an empty response. Please try again.' }, { status: 500 })
+    if (!content) {
+      return NextResponse.json({ error: 'No plan generated. Please try again.' }, { status: 500 })
     }
 
-    // Strip markdown code fences
-    const jsonStr = content.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()
-
-    let plan
+    let plan: { stops?: unknown[] }
     try {
-      plan = JSON.parse(jsonStr)
+      plan = JSON.parse(content)
     } catch {
-      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        try {
-          plan = JSON.parse(jsonMatch[0])
-        } catch {
-          const snippet = jsonStr.substring(0, 150).replace(/\n/g, ' ')
-          console.error('Plan JSON parse failed. Content snippet:', snippet)
-          return NextResponse.json({ error: `Plan format error. The AI returned invalid JSON. Please try again. (Got: ${snippet})` }, { status: 500 })
-        }
-      } else {
-        const snippet = jsonStr.substring(0, 150).replace(/\n/g, ' ')
-        return NextResponse.json({ error: `Plan format error. Expected JSON but got: ${snippet}` }, { status: 500 })
-      }
+      return NextResponse.json({ error: 'Plan format error. Please try again.' }, { status: 500 })
     }
 
     if (!plan.stops || !Array.isArray(plan.stops)) {
