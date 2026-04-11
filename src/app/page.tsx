@@ -539,6 +539,7 @@ export default function Home() {
                 value={selectedDate}
                 onChange={setSelectedDate}
                 label={`Checking availability for: ${formatDate(selectedDate)}`}
+                maxDays={180}
               />
             </div>
           )}

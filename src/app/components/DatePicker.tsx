@@ -6,6 +6,7 @@ type DatePickerProps = {
   value: string
   onChange: (date: string) => void
   label?: string
+  maxDays?: number  // default 14, parks use 180
 }
 
 function toLocalDateString(date: Date): string {
@@ -15,9 +16,9 @@ function toLocalDateString(date: Date): string {
   return `${y}-${m}-${d}`
 }
 
-export default function DatePicker({ value, onChange, label }: DatePickerProps) {
+export default function DatePicker({ value, onChange, label, maxDays = 14 }: DatePickerProps) {
   const today = toLocalDateString(new Date())
-  const maxDate = toLocalDateString(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000))
+  const maxDate = toLocalDateString(new Date(Date.now() + maxDays * 24 * 60 * 60 * 1000))
 
   return (
     <div className="datepicker-wrap">
