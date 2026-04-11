@@ -39,7 +39,6 @@ export async function GET(request: NextRequest) {
   const query = `${city} ${TYPE_QUERIES[type]}`
 
   try {
-    // Search for places
     const searchRes = await fetch(
       `https://places.googleapis.com/v1/places:searchText`,
       {
@@ -48,7 +47,7 @@ export async function GET(request: NextRequest) {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': apiKey,
           'X-Goog-FieldMask':
-            'places.name,places.displayName,places.rating,places.priceLevel,places.types,places.primaryType',
+            'places.name,places.displayName,places.rating,places.priceLevel,places.types,places.primaryType,places.photos,places.formattedAddress,places.googleMapsUri',
         },
         body: JSON.stringify({
           textQuery: query,
@@ -60,61 +59,32 @@ export async function GET(request: NextRequest) {
 
     if (!searchRes.ok) {
       const err = await searchRes.json().catch(() => ({}))
-      console.error('Google Places search error:', err)
+      console.error('Google Places error:', err)
       return NextResponse.json({ error: 'Search service unavailable.' }, { status: 502 })
     }
 
     const searchData = await searchRes.json()
     const places = searchData.places || []
 
-    if (!places.length) {
-      return NextResponse.json({ results: [], city })
-    }
+    const results: PlaceResult[] = places.slice(0, 8).map((place: Record<string, unknown>) => {
+      const placeId = String(place.name || '')
+      const displayName = (place.displayName as { text: string } | null)?.text || placeId
+      const rating = (place.rating as number | null) ?? null
+      const priceLevel = (place.priceLevel as number | null) ?? null
+      const types = (place.types as string[]) || []
+      const primaryType = String(place.primaryType || types[0] || '')
+      const address = String(place.formattedAddress || '')
+      const gmapsUrl = String(place.googleMapsUri || '')
+      const mapUrl = gmapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayName)}`
 
-    const results: PlaceResult[] = []
+      // Build photo URL from first photo reference
+      const photos = (place.photos as Array<{ name: string }>) || []
+      const photoName = photos[0]?.name
+      const photoUrl = photoName
+        ? `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=400&key=${apiKey}`
+        : null
 
-    // Fetch details for each place (to get photos + address)
-    for (const place of places) {
-      if (results.length >= 8) break
-
-      const placeId = place.name
-      const displayName = place.displayName?.text || place.name
-      const rating = place.rating ?? null
-      const priceLevel = place.priceLevel ?? null
-      const types: string[] = place.types || []
-      const primaryType: string = place.primaryType || types[0] || ''
-      const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayName)}`
-
-      let photoUrl: string | null = null
-      let address = ''
-      let gmapsUrl = ''
-
-      try {
-        const detailsRes = await fetch(
-          `https://places.googleapis.com/v1/${placeId}`,
-          {
-            headers: {
-              'X-Goog-Api-Key': apiKey,
-              'X-Goog-FieldMask': 'places.formattedAddress,places.googleMapsUri,places.photos',
-            },
-          }
-        )
-        if (detailsRes.ok) {
-          const details = await detailsRes.json()
-          address = details.formattedAddress || ''
-          gmapsUrl = details.googleMapsUri || ''
-
-          // Build photo URL directly from photo resource name
-          const photoName = details.photos?.[0]?.name
-          if (photoName) {
-            photoUrl = `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=400&key=${apiKey}`
-          }
-        }
-      } catch {
-        // Continue without photo
-      }
-
-      results.push({
+      return {
         id: placeId,
         name: displayName,
         rating,
@@ -122,10 +92,10 @@ export async function GET(request: NextRequest) {
         types,
         primaryType,
         photoUrl,
-        mapUrl: gmapsUrl || mapUrl,
+        mapUrl,
         address,
-      })
-    }
+      }
+    })
 
     return NextResponse.json({ results, city })
   } catch (error) {
