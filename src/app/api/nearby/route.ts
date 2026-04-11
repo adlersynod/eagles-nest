@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// Average human walking speed: ~5 km/h = ~83m/min
+// Average human walking speed: ~5 km/h ≈ 83m/min
 const WALK_SPEED_M_PER_MIN = 83
 
-// Google Places Nearby Search via REST
-// Note: includedType is NOT used — not supported by this API key's Places v1 config
-async function fetchNearby(
-  lat: number,
-  lng: number,
-  radiusMeters: number
-) {
+// Google Places Nearby Search — always fetches ALL types
+// Type filtering is done entirely client-side (Google Places v1 Nearby does not support
+// includedType on all API key configurations)
+async function fetchNearby(lat: number, lng: number, radiusMeters: number) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY
   if (!apiKey) return []
 
@@ -23,7 +20,7 @@ async function fetchNearby(
         radius: radiusMeters,
       },
     },
-    maxResultCount: 12,
+    maxResultCount: 20, // fetch more — client-side filter is strict
     languageCode: 'en',
   }
 
@@ -66,49 +63,25 @@ function buildDirectionsUrl(
   return `https://www.google.com/maps/dir/?api=1&origin=${originLat},${originLng}&destination=${destLat},${destLng}&travelmode=walking`
 }
 
-// Client-side type filter labels
-const TYPE_LABELS: Record<string, string> = {
-  restaurant: '🍽️',
-  cafe: '☕',
-  bar: '🍺',
-  park: '🏞️',
-  lodging: '🏨',
-  store: '🛍️',
-  gym: '💪',
-  bakery: '🥐',
-  food: '🍜',
-  default: '📍',
-}
-
-// Filter a place by type keyword
-function typeMatches(types: string[], filter: string): boolean {
-  if (filter === 'all') return true
-  const t = filter.toLowerCase()
-  if (t === 'restaurant') return types.some(x => ['restaurant', 'food', 'bakery', 'meal_delivery', 'meal_takeaway'].includes(x))
-  if (t === 'cafe') return types.some(x => ['cafe', 'coffee_shop', 'bakery'].includes(x))
-  if (t === 'bar') return types.some(x => ['bar', 'night_club'].includes(x))
-  if (t === 'park') return types.some(x => ['park', 'campground', 'nature_reserve', 'trail'].includes(x))
-  return true
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { lat, lng, radiusMeters = 800, includedType, originName } = body
+    const { lat, lng, radiusMeters = 800, originName } = body
 
     if (!lat || !lng) {
       return NextResponse.json({ error: 'Missing lat/lng' }, { status: 400 })
     }
 
+    // Always fetch ALL places — no includedType (not supported by this API key config)
     const places = await fetchNearby(lat, lng, radiusMeters)
     const apiKey = process.env.GOOGLE_PLACES_API_KEY || ''
 
-    const allResults = places.map((place: Record<string, unknown>) => {
+    const results = places.map((place: Record<string, unknown>) => {
       const location = place.location as { latitude: number; longitude: number } | undefined
       const destLat = location?.latitude ?? 0
       const destLng = location?.longitude ?? 0
 
-      // Estimate walk time from straight-line distance + 30% streets factor
+      // Approximate street walk distance = straight-line × 1.3
       const dx = (destLng - lng) * Math.cos((lat * Math.PI) / 180) * 111320
       const dy = (destLat - lat) * 110540
       const straightLineMeters = Math.sqrt(dx * dx + dy * dy)
@@ -120,7 +93,12 @@ export async function POST(request: NextRequest) {
         : null
 
       const types = (place.types as string[] | undefined) || []
-      const primaryType = String(place.primaryType || types.find(t => !['point_of_interest', 'establishment'].includes(t)) || 'place')
+      // Find best display type — prefer non-generic types
+      const primaryType = String(
+        place.primaryType ||
+        types.find(t => !['point_of_interest', 'establishment', 'point_of_interest'].includes(t)) ||
+        'place'
+      )
 
       const displayNameObj = place.displayName as { text?: string } | null | undefined
       const name = displayNameObj?.text || (place.name as string) || 'Unknown'
@@ -142,9 +120,6 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // Apply type filter if specified (done server-side since API doesn't support includedType)
-    const results = allResults.filter((r: { types: string[] }) => typeMatches(r.types, includedType || 'all'))
-
     // Sort by walk time
     results.sort((a: { walkTime: string }, b: { walkTime: string }) => {
       const aMin = parseInt(a.walkTime) || 99
@@ -156,7 +131,6 @@ export async function POST(request: NextRequest) {
       results,
       originName: originName || 'Selected location',
       radiusMeters,
-      includedType: includedType || 'all',
     })
   } catch (err) {
     console.error('Nearby API error:', err)

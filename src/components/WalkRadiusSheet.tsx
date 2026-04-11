@@ -6,6 +6,7 @@ type NearbyPlace = {
   name: string
   rating: number | null
   primaryType: string
+  types: string[]
   photoUrl: string | null
   address: string
   mapUrl: string
@@ -23,32 +24,78 @@ type WalkRadiusSheetProps = {
   onClose: () => void
 }
 
+// Client-side type filter — expanded to match Google Places type taxonomy
+function typeMatches(types: string[], filter: string): boolean {
+  if (filter === 'all') return true
+  const t = filter.toLowerCase()
+
+  // Food: restaurants of any kind + grocery + bakeries + food stores
+  if (t === 'restaurant') {
+    return types.some(x =>
+      ['restaurant', 'food', 'bakery', 'grocery_store', 'supermarket',
+        'fast_food_restaurant', 'american_restaurant', 'pizza_restaurant',
+        'seafood_restaurant', 'mexican_restaurant', 'asian_restaurant',
+        'chicken_restaurant', 'sandwich_shop', 'coffee_shop', 'food_store',
+        'donut_shop', 'cupcake_shop', 'dessert_restaurant', 'meal_takeaway',
+        'meal_delivery', 'cafe'].includes(x)
+    )
+  }
+  // Coffee: cafes, coffee shops, tea houses
+  if (t === 'cafe') {
+    return types.some(x =>
+      ['cafe', 'coffee_shop', 'tea_house', 'bakery',
+        'donut_shop', 'cupcake_shop', 'dessert_restaurant'].includes(x)
+    )
+  }
+  // Drinks: bars, breweries, pubs, nightlife
+  if (t === 'bar') {
+    return types.some(x =>
+      ['bar', 'pub', 'brewery', 'night_club', 'wine_bar',
+        'cocktail_bar', 'lounge', 'beer_garden', 'whisky_bar'].includes(x)
+    )
+  }
+  // Outdoors: parks, trails, nature, campgrounds, beaches
+  if (t === 'park') {
+    return types.some(x =>
+      ['park', 'city_park', 'state_park', 'national_park', 'nature_reserve',
+        'trail', 'campground', 'rv_park', 'beach', ' lake', 'river',
+        'waterfall', 'mountain', 'forest', 'botanical_garden',
+        'zoo', 'aquarium', 'amusement_park'].includes(x)
+    )
+  }
+  return true
+}
+
 const RADIUS_OPTIONS = [
-  { label: '5 min', meters: 400, type: 'restaurant' },
-  { label: '10 min', meters: 800, type: 'restaurant' },
-  { label: '15 min', meters: 1200, type: 'restaurant' },
-  { label: '20 min', meters: 1600, type: 'restaurant' },
+  { label: '5 min', meters: 400 },
+  { label: '10 min', meters: 800 },
+  { label: '15 min', meters: 1200 },
+  { label: '20 min', meters: 1600 },
 ]
 
-const TYPE_LABELS: Record<string, string> = {
-  restaurant: '🍽️',
-  cafe: '☕',
-  bar: '🍺',
-  park: '🏞️',
-  lodging: '🏨',
-  store: '🛍️',
-  gym: '💪',
-  bakery: '🥐',
-  food: '🍜',
+const TYPE_FILTERS = [
+  { label: '✨ All', value: 'all' },
+  { label: '🍽️ Food', value: 'restaurant' },
+  { label: '☕ Coffee', value: 'cafe' },
+  { label: '🍺 Drinks', value: 'bar' },
+  { label: '🏞️ Outdoors', value: 'park' },
+]
+
+const TYPE_ICONS: Record<string, string> = {
+  restaurant: '🍽️', cafe: '☕', coffee_shop: '☕', donut_shop: '🍩',
+  bar: '🍺', pub: '🍺', park: '🏞️', city_park: '🏞️', trail: '🥾',
+  bookstore: '📚', library: '📚', shopping_mall: '🛍️', store: '🛒',
+  hotel: '🏨', lodging: '🏨', airport: '✈️', train_station: '🚂',
   default: '📍',
 }
 
-function TypeIcon({ type }: { type: string }) {
-  const t = type?.toLowerCase() || ''
-  for (const [key, emoji] of Object.entries(TYPE_LABELS)) {
-    if (key !== 'default' && t.includes(key)) return <span>{emoji}</span>
+function TypeIcon({ types, primaryType }: { types: string[]; primaryType: string }) {
+  const all = [...types, primaryType].map(t => t.toLowerCase())
+  for (const [key, emoji] of Object.entries(TYPE_ICONS)) {
+    if (key === 'default') continue
+    if (all.some(t => t.includes(key))) return <span>{emoji}</span>
   }
-  return <span>{TYPE_LABELS.default}</span>
+  return <span>📍</span>
 }
 
 function SkeletonRow() {
@@ -66,20 +113,20 @@ function SkeletonRow() {
 
 export default function WalkRadiusSheet({ originLat, originLng, originName, onClose }: WalkRadiusSheetProps) {
   const [selectedRadius, setSelectedRadius] = useState(RADIUS_OPTIONS[1]) // 10 min default
-  const [places, setPlaces] = useState<NearbyPlace[]>([])
+  const [allPlaces, setAllPlaces] = useState<NearbyPlace[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [selectedType, setSelectedType] = useState<'restaurant' | 'cafe' | 'bar' | 'park' | 'all'>('all')
+  const [selectedType, setSelectedType] = useState<string>('all')
   const sheetRef = useRef<HTMLDivElement>(null)
 
-  // Build cache key
-  const cacheKey = `${originLat.toFixed(4)},${originLng.toFixed(4)}:${selectedRadius.meters}:${selectedType}`
+  // Fetch ALL places once per radius change — no includedType sent to API
+  const cacheKey = `${originLat.toFixed(4)},${originLng.toFixed(4)}:${selectedRadius.meters}`
 
   useEffect(() => {
     const cached = sessionStorage.getItem('en_nearby:' + cacheKey)
     if (cached) {
       try {
-        setPlaces(JSON.parse(cached))
+        setAllPlaces(JSON.parse(cached))
         setLoading(false)
         return
       } catch {}
@@ -88,48 +135,40 @@ export default function WalkRadiusSheet({ originLat, originLng, originName, onCl
     setLoading(true)
     setError(null)
 
-    const body: Record<string, unknown> = {
-      lat: originLat,
-      lng: originLng,
-      radiusMeters: selectedRadius.meters,
-      originName,
-    }
-    if (selectedType !== 'all') body.includedType = selectedType
-
     fetch('/api/nearby', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        lat: originLat,
+        lng: originLng,
+        radiusMeters: selectedRadius.meters,
+        originName,
+      }),
     })
       .then(r => r.json())
       .then(d => {
         if (d.error) throw new Error(d.error)
-        setPlaces(d.results || [])
-        sessionStorage.setItem('en_nearby:' + cacheKey, JSON.stringify(d.results || []))
+        const places = d.results || []
+        setAllPlaces(places)
+        sessionStorage.setItem('en_nearby:' + cacheKey, JSON.stringify(places))
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false))
-  }, [originLat, originLng, selectedRadius, selectedType, originName, cacheKey])
+  }, [originLat, originLng, selectedRadius, originName, cacheKey])
 
-  // Close on outside click
+  // Client-side filter
+  const visiblePlaces = allPlaces.filter(p => typeMatches(p.types || [], selectedType))
+
+  // Close on outside click or Escape
   const handleBackdrop = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) onClose()
   }
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [onClose])
-
-  const TYPE_FILTERS: { label: string; value: 'restaurant' | 'cafe' | 'bar' | 'park' | 'all' }[] = [
-    { label: '🍽️ Food', value: 'restaurant' },
-    { label: '☕ Coffee', value: 'cafe' },
-    { label: '🍺 Drinks', value: 'bar' },
-    { label: '🏞️ Outdoors', value: 'park' },
-    { label: '✨ All', value: 'all' },
-  ]
 
   return (
     <div
@@ -153,7 +192,7 @@ export default function WalkRadiusSheet({ originLat, originLng, originName, onCl
           flexDirection: 'column',
         }}
       >
-        {/* Handle bar */}
+        {/* Handle */}
         <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
           <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.2)' }} />
         </div>
@@ -162,32 +201,19 @@ export default function WalkRadiusSheet({ originLat, originLng, originName, onCl
         <div style={{ padding: '12px 20px 8px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#fff' }}>
-                🚶 Walk from here
-              </h3>
-              <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
-                {originName}
-              </p>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#fff' }}>🚶 Walk from here</h3>
+              <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>{originName}</p>
             </div>
-            <button
-              onClick={onClose}
-              style={{
-                background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%',
-                width: 32, height: 32, color: '#fff', cursor: 'pointer', fontSize: '1rem',
-              }}
-              aria-label="Close"
-            >
-              ✕
-            </button>
+            <button onClick={onClose} style={{
+              background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%',
+              width: 32, height: 32, color: '#fff', cursor: 'pointer', fontSize: '1rem',
+            }} aria-label="Close">✕</button>
           </div>
         </div>
 
         {/* Walk time segmented control */}
         <div style={{ padding: '10px 20px 6px' }}>
-          <div style={{
-            display: 'flex', gap: 6, background: 'rgba(255,255,255,0.05)',
-            borderRadius: 10, padding: 4,
-          }}>
+          <div style={{ display: 'flex', gap: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 10, padding: 4 }}>
             {RADIUS_OPTIONS.map(opt => (
               <button
                 key={opt.label}
@@ -195,19 +221,16 @@ export default function WalkRadiusSheet({ originLat, originLng, originName, onCl
                 style={{
                   flex: 1, padding: '6px 4px', border: 'none', borderRadius: 8,
                   cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
-                  background: selectedRadius.label === opt.label
-                    ? 'rgba(110,231,160,0.2)' : 'transparent',
+                  background: selectedRadius.label === opt.label ? 'rgba(110,231,160,0.2)' : 'transparent',
                   color: selectedRadius.label === opt.label ? '#6ee7a0' : 'rgba(255,255,255,0.45)',
                   transition: 'all 0.15s',
                 }}
-              >
-                {opt.label}
-              </button>
+              >{opt.label}</button>
             ))}
           </div>
         </div>
 
-        {/* Place type filters */}
+        {/* Type filters */}
         <div style={{ padding: '4px 20px 8px', display: 'flex', gap: 6, overflowX: 'auto' }}>
           {TYPE_FILTERS.map(f => (
             <button
@@ -220,33 +243,27 @@ export default function WalkRadiusSheet({ originLat, originLng, originName, onCl
                 background: selectedType === f.value ? 'rgba(110,231,160,0.08)' : 'transparent',
                 color: selectedType === f.value ? '#6ee7a0' : 'rgba(255,255,255,0.45)',
               }}
-            >
-              {f.label}
-            </button>
+            >{f.label}</button>
           ))}
         </div>
 
         {/* Results */}
         <div style={{ overflowY: 'auto', flex: 1, padding: '0 20px 20px' }}>
           {loading && (
-            <div>
-              {[1,2,3,4].map(i => <SkeletonRow key={i} />)}
-            </div>
+            <div>{[1,2,3,4].map(i => <SkeletonRow key={i} />)}</div>
           )}
 
           {error && !loading && (
-            <p style={{ color: '#f87171', fontSize: '0.85rem', textAlign: 'center', padding: '20px 0' }}>
-              {error}
-            </p>
+            <p style={{ color: '#f87171', fontSize: '0.85rem', textAlign: 'center', padding: '20px 0' }}>{error}</p>
           )}
 
-          {!loading && !error && places.length === 0 && (
+          {!loading && !error && visiblePlaces.length === 0 && (
             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', textAlign: 'center', padding: '20px 0' }}>
-              No places found — try a longer walk
+              No places for this filter — try "All" or a longer walk
             </p>
           )}
 
-          {!loading && !error && places.map((place, i) => (
+          {!loading && !error && visiblePlaces.map((place, i) => (
             <div
               key={i}
               style={{
@@ -255,22 +272,24 @@ export default function WalkRadiusSheet({ originLat, originLng, originName, onCl
                 alignItems: 'center',
               }}
             >
-              {/* Place icon */}
+              {/* Icon */}
               <div style={{
                 width: 40, height: 40, borderRadius: 8,
                 background: 'rgba(110,231,160,0.08)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '1.1rem', flexShrink: 0,
               }}>
-                <TypeIcon type={place.primaryType} />
+                <TypeIcon types={place.types} primaryType={place.primaryType} />
               </div>
 
               {/* Info */}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: 600, color: '#fff',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {place.name}
                 </p>
-                <p style={{ margin: '1px 0 0', fontSize: '0.72rem', color: 'rgba(255,255,255,0.35)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <p style={{ margin: '1px 0 0', fontSize: '0.72rem', color: 'rgba(255,255,255,0.35)',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {place.address || place.primaryType}
                 </p>
                 {place.rating && (
@@ -283,23 +302,14 @@ export default function WalkRadiusSheet({ originLat, originLng, originName, onCl
               {/* Walk badge + directions */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
                 <span style={{
-                  background: 'rgba(110,231,160,0.12)',
-                  color: '#6ee7a0',
+                  background: 'rgba(110,231,160,0.12)', color: '#6ee7a0',
                   border: '1px solid rgba(110,231,160,0.25)',
-                  borderRadius: 6, padding: '2px 7px',
-                  fontSize: '0.72rem', fontWeight: 700,
+                  borderRadius: 6, padding: '2px 7px', fontSize: '0.72rem', fontWeight: 700,
                 }}>
                   🚶 {place.walkTime}
                 </span>
-                <a
-                  href={place.directionsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    fontSize: '0.65rem', color: 'rgba(110,231,160,0.6)',
-                    textDecoration: 'none',
-                  }}
-                >
+                <a href={place.directionsUrl} target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: '0.65rem', color: 'rgba(110,231,160,0.6)', textDecoration: 'none' }}>
                   📍 Directions
                 </a>
               </div>
