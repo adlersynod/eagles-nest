@@ -80,19 +80,21 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
     const data = await response.json()
     const rawContent = data?.choices?.[0]?.message
 
-    // MiniMax-M2.7 sends response as structured content in 'reasoning' field
-    // The content field is null but reasoning has the actual response text
+    // MiniMax-M2.7: content field has the JSON response, reasoning field has thinking
+    // Prefer content if available and non-empty, fallback to reasoning
     let content: string | null = null
-    if (typeof rawContent === 'string') {
-      content = rawContent
-    } else if (rawContent && typeof rawContent === 'object') {
+    if (rawContent && typeof rawContent === 'object') {
       const msg = rawContent as Record<string, unknown>
-      // reasoning field contains the actual JSON/text response
-      if (msg['reasoning'] && typeof msg['reasoning'] === 'string') {
-        content = msg['reasoning'] as string
-      } else if (msg['content'] && typeof msg['content'] === 'string') {
-        content = msg['content'] as string
+      const contentField = msg['content']
+      const reasoningField = msg['reasoning']
+      if (typeof contentField === 'string' && contentField.trim().length > 0) {
+        content = contentField
+      } else if (typeof reasoningField === 'string' && reasoningField.trim().length > 0) {
+        // Fallback to reasoning only if content is empty/null
+        content = reasoningField
       }
+    } else if (typeof rawContent === 'string') {
+      content = rawContent
     }
 
     if (!content || content.trim() === '') {
