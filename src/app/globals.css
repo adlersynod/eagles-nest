@@ -609,6 +609,44 @@ body {
   font-weight: 600;
 }
 
+/* ── Saved City Chips ───────────────────────────────────── */
+.saved-cities-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+
+.saved-city-chip {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.75);
+  padding: 0.3rem 0.65rem;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.saved-city-chip:hover {
+  background: rgba(240,192,64,0.15);
+  border-color: rgba(240,192,64,0.4);
+  color: #f0c040;
+}
+
+.date-range-badge {
+  font-size: 0.75rem;
+  color: #f0c040;
+  background: rgba(240,192,64,0.1);
+  border: 1px solid rgba(240,192,64,0.25);
+  padding: 0.25rem 0.55rem;
+  border-radius: 6px;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+  display: inline-block;
+}
+
 /* ── Vacancy Badge ───────────────────────────────── */
 .vacancy-badge {
   background: rgba(0,0,0,0.65);

@@ -129,6 +129,20 @@ function PriceLevel({ level }: { level: number | null }) {
   return <span className="price-badge price-active">{'$'.repeat(level)}</span>
 }
 
+// ── Saved City Chips ────────────────────────────────────────────────
+function SavedCityChips({ cities, onSelect }: { cities: string[]; onSelect: (city: string) => void }) {
+  if (!cities.length) return null
+  return (
+    <div className="saved-cities-row">
+      {cities.map((c) => (
+        <button key={c} className="saved-city-chip" onClick={() => onSelect(c)}>
+          ⭐ {c}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ── Location Input ───────────────────────────────────────────────────
 function LocationInput({
   value, onChange, onSearch, loading,
@@ -211,6 +225,10 @@ function PlaceCard({ place }: { place: PlaceResult }) {
 function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: CampgroundResult; rangeStart: string; rangeEnd: string; isPeakSeason: boolean }) {
   const vacancy = VACANCY_LABELS[camp.vacancyStatus]
   const [imgError, setImgError] = useState(false)
+  const nights = rangeStart && rangeEnd ? Math.max(0, Math.round((new Date(rangeEnd + 'T00:00:00').getTime() - new Date(rangeStart + 'T00:00:00').getTime()) / 86400000)) : 0
+  const rangeLabel = rangeStart && rangeEnd && nights > 0
+    ? `${formatDate(rangeStart)} → ${formatDate(rangeEnd)} · ${nights}n`
+    : null
 
   return (
     <div className="place-card">
@@ -242,6 +260,7 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
             <span className="book-early-badge">📅 Book Early</span>
           )}
         </div>
+        {rangeLabel && <p className="date-range-badge">📅 {rangeLabel}</p>}
         <p className="vacancy-note">{camp.vacancyNote}</p>
         {camp.bookingUrl && (
           <div className="card-actions">
@@ -454,6 +473,23 @@ export default function Home() {
   const [rangeEnd, setRangeEnd] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() + 3); return d.toISOString().slice(0, 10)
   })
+  const [savedCities, setSavedCities] = useState<string[]>([])
+
+  // Load saved cities from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('en_saved_cities')
+      if (stored) setSavedCities(JSON.parse(stored))
+    } catch {}
+  }, [])
+
+  const saveCity = (c: string) => {
+    try {
+      const next = [c, ...savedCities.filter(s => s !== c)].slice(0, 5)
+      setSavedCities(next)
+      localStorage.setItem('en_saved_cities', JSON.stringify(next))
+    } catch {}
+  }
 
   const handleSearch = async () => {
     if (!city.trim()) return
@@ -481,6 +517,7 @@ export default function Home() {
       }
 
       setData(fresh as Record<'attractions' | 'restaurants' | 'parks', PlaceResult[]>)
+        saveCity(dest)
 
       // Fetch campground vacancy data
       setCampgroundsLoading(true)
@@ -503,8 +540,8 @@ export default function Home() {
     }
   }
 
-  const month = new Date().getMonth() + 1
-  const peakSeason = month >= 6 && month <= 9
+  const tripMonth = rangeStart ? new Date(rangeStart + 'T00:00:00').getMonth() + 1 : new Date().getMonth() + 1
+  const peakSeason = tripMonth >= 6 && tripMonth <= 9
 
   return (
     <main className="app">
@@ -513,6 +550,7 @@ export default function Home() {
         <p>Your RV Travel Companion — find places, parks & weather anywhere</p>
       </header>
 
+      <SavedCityChips cities={savedCities} onSelect={(c) => { setCity(c); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
       <LocationInput value={city} onChange={setCity} onSearch={handleSearch} loading={loading} />
 
       <TabBar active={activeTab} onChange={setActiveTab} />
