@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
   if (lat !== 0 && lng !== 0) {
     try {
       const forecastRes = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`,
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weather_code,temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&forecast_days=16`,
         { signal: AbortSignal.timeout(8000) }
       )
       if (forecastRes.ok) {
@@ -94,8 +94,8 @@ export async function GET(request: NextRequest) {
             const { icon, desc } = weatherCodeToIconAndDesc(code)
             return {
               date,
-              maxTemp: `${Math.round(daily.temperature_2m_max?.[i] ?? 0)}°C`,
-              minTemp: `${Math.round(daily.temperature_2m_min?.[i] ?? 0)}°C`,
+              maxTemp: `${Math.round(daily.temperature_2m_max?.[i] ?? 0)}°F`,
+              minTemp: `${Math.round(daily.temperature_2m_min?.[i] ?? 0)}°F`,
               desc,
               icon,
             }
@@ -125,8 +125,8 @@ export async function GET(request: NextRequest) {
           const desc = String((hourly?.weatherDesc as Array<{ value: string }>)?.[0]?.value || '')
           return {
             date: String(day.date || ''),
-            maxTemp: `${day.maxtempC}°C`,
-            minTemp: `${day.mintempC}°C`,
+            maxTemp: `${Math.round(Number(day.maxtempF ?? day.maxtempC))}°F`,
+            minTemp: `${Math.round(Number(day.mintempF ?? day.mintempC))}°F`,
             desc,
             icon: getWttrIcon(desc),
           }
@@ -154,9 +154,11 @@ export async function GET(request: NextRequest) {
         const archiveData = await archiveRes.json()
         const daily = archiveData?.daily
         if (daily && Array.isArray(daily.temperature_2m_max) && daily.temperature_2m_max.length > 0) {
+          const avgHighC = daily.temperature_2m_max[0]
+          const avgLowC = daily.temperature_2m_min[0]
           historical = {
-            avgHigh: daily.temperature_2m_max[0] != null ? `${Math.round(daily.temperature_2m_max[0])}°C` : null,
-            avgLow: daily.temperature_2m_min[0] != null ? `${Math.round(daily.temperature_2m_min[0])}°C` : null,
+            avgHigh: avgHighC != null ? `${Math.round((avgHighC * 9) / 5 + 32)}°F` : null,
+            avgLow: avgLowC != null ? `${Math.round((avgLowC * 9) / 5 + 32)}°F` : null,
             avgPrecipMm: daily.precipitation_sum?.[0] != null ? parseFloat(daily.precipitation_sum[0].toFixed(1)) : null,
           }
         }
