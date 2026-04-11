@@ -261,7 +261,11 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
           )}
         </div>
         {rangeLabel && <p className="date-range-badge">📅 {rangeLabel}</p>}
-        <p className="vacancy-note">{camp.vacancyNote}</p>
+        {camp.vacancyNote && (
+          <p className={`vacancy-note ${camp.vacancyNote.toLowerCase().includes('check for cancellation') ? 'vacancy-urgent' : camp.vacancyNote.toLowerCase().includes('only') || camp.vacancyNote.toLowerCase().includes('left') ? 'vacancy-warn' : ''}`}>
+            {camp.vacancyNote}
+          </p>
+        )}
         {camp.bookingUrl && (
           <div className="card-actions">
             <a href={camp.bookingUrl} target="_blank" rel="noopener noreferrer" className="card-directions-btn check-avail-btn">
@@ -673,6 +677,15 @@ export default function Home() {
           <ResultGrid places={data[activeTab] || []} loading={loading && !!city} />
         </>
       )}
+
+      <footer className="app-footer">
+        <span>Powered by</span>
+        <span>Google Places</span>
+        <span className="footer-dot">·</span>
+        <span>Open-Meteo</span>
+        <span className="footer-dot">·</span>
+        <span>Recreation.gov</span>
+      </footer>
     </main>
   )
 }

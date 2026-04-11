@@ -213,9 +213,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, rgba(240,192,64,0.1), rgba(232,126,48,0.08));
-  color: rgba(240,192,64,0.4);
-  font-size: 3rem;
+  background: linear-gradient(135deg, rgba(240,192,64,0.12) 0%, rgba(232,126,48,0.08) 50%, rgba(110,231,160,0.06) 100%);
+  color: rgba(240,192,64,0.5);
+  font-size: 3.5rem;
+  min-height: 180px;
 }
 
 .card-photo-overlay {
@@ -723,6 +724,16 @@ body {
   margin-bottom: 0.4rem;
 }
 
+.vacancy-note.vacancy-warn {
+  color: #f0c040;
+  font-weight: 600;
+}
+
+.vacancy-note.vacancy-urgent {
+  color: #f87171;
+  font-weight: 600;
+}
+
 .check-avail-btn {
   min-height: 44px;
   min-width: 44px;
@@ -785,4 +796,21 @@ body {
   .card-photo {
     height: 180px;
   }
+}
+
+/* ── Footer ──────────────────────────────────────── */
+.app-footer {
+  text-align: center;
+  padding: 1.5rem 1rem 2rem;
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.footer-dot {
+  opacity: 0.4;
 }
