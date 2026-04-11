@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': apiKey,
           'X-Goog-FieldMask':
-            'places.name,places.displayName,places.rating,places.priceLevel,places.types,places.primaryType,places.photos,places.formattedAddress,places.googleMapsUri',
+            'places.name,places.displayName,places.rating,places.priceLevel,places.types,places.primaryType,places.photos,places.formattedAddress,places.googleMapsUri,places.location',
         },
         body: JSON.stringify(body),
       }
@@ -106,6 +106,9 @@ export async function GET(request: NextRequest) {
       // Use Google Maps search URL: most reliable across all platforms/devices
       const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayName)}&zoom=15`
 
+      // Extract lat/lng from location object
+      const location = place.location as { latitude: number; longitude: number } | undefined
+
       return {
         id: placeId,
         name: displayName,
@@ -116,6 +119,8 @@ export async function GET(request: NextRequest) {
         photoUrl,
         mapUrl,
         address,
+        lat: location?.latitude,
+        lng: location?.longitude,
       }
     })
 

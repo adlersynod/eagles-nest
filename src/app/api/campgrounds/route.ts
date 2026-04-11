@@ -8,6 +8,8 @@ type CampgroundResult = {
   photoUrl: string | null
   bookingUrl: string | null
   mapUrl: string | null
+  lat?: number
+  lng?: number
   vacancyStatus: 'available' | 'limited' | 'likely_full' | 'unknown'
   vacancyNote: string
 }
@@ -77,6 +79,8 @@ async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
         photoUrl: (item?.preview_image_url as string) || null,
         bookingUrl,
         mapUrl,
+        lat: lat ?? undefined,
+        lng: lng ?? undefined,
         vacancyStatus,
         vacancyNote,
       })

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import DatePicker, { DateRangePicker } from './components/DatePicker'
 import ExternalLink from '../components/ExternalLink'
+import WalkRadiusSheet from '../components/WalkRadiusSheet'
 
 // ── Types ────────────────────────────────────────────────────────────
 type TabId = 'attractions' | 'restaurants' | 'parks' | 'weather'
@@ -18,6 +19,8 @@ type PlaceResult = {
   photoUrl: string | null
   mapUrl: string
   address: string
+  lat?: number
+  lng?: number
 }
 
 type WeatherDay = {
@@ -36,6 +39,8 @@ type CampgroundResult = {
   photoUrl: string | null
   bookingUrl: string | null
   mapUrl: string | null
+  lat?: number
+  lng?: number
   vacancyStatus: 'available' | 'limited' | 'likely_full' | 'unknown'
   vacancyNote: string
 }
@@ -233,7 +238,7 @@ function TabBar({ active, onChange }: { active: TabId; onChange: (t: TabId) => v
 }
 
 // ── Visual Place Card ───────────────────────────────────────────────
-function PlaceCard({ place }: { place: PlaceResult }) {
+function PlaceCard({ place, onWalkFromHere }: { place: PlaceResult; onWalkFromHere?: (lat: number, lng: number, name: string) => void }) {
   const [imgError, setImgError] = useState(false)
   const category = getCategoryBadge(place.types, place.primaryType)
 
@@ -261,9 +266,18 @@ function PlaceCard({ place }: { place: PlaceResult }) {
           <PriceLevel level={place.priceLevel} />
         </div>
         <div className="card-actions">
-          <ExternalLink href={place.mapUrl} className="card-directions-btn">
-            📍 View on Maps
-          </ExternalLink>
+          {onWalkFromHere && place.lat != null && place.lng != null ? (
+            <button
+              className="card-walk-btn"
+              onClick={(e) => { e.preventDefault(); onWalkFromHere(place.lat!, place.lng!, place.name) }}
+            >
+              🚶 Walk from here
+            </button>
+          ) : (
+            <ExternalLink href={place.mapUrl} className="card-directions-btn">
+              📍 View on Maps
+            </ExternalLink>
+          )}
         </div>
       </div>
     </div>
@@ -271,7 +285,7 @@ function PlaceCard({ place }: { place: PlaceResult }) {
 }
 
 // ── Campground Card (for RV Parks tab) ──────────────────────────────
-function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: CampgroundResult; rangeStart: string; rangeEnd: string; isPeakSeason: boolean }) {
+function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHere }: { camp: CampgroundResult; rangeStart: string; rangeEnd: string; isPeakSeason: boolean; onWalkFromHere?: (lat: number, lng: number, name: string) => void }) {
   const vacancy = VACANCY_LABELS[camp.vacancyStatus]
   const [imgError, setImgError] = useState(false)
   const nights = rangeStart && rangeEnd ? Math.max(0, Math.round((new Date(rangeEnd + 'T00:00:00').getTime() - new Date(rangeStart + 'T00:00:00').getTime()) / 86400000)) : 0
@@ -332,6 +346,14 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
               📍 Directions
             </ExternalLink>
           )}
+          {onWalkFromHere && camp.lat != null && camp.lng != null && (
+            <button
+              className="card-walk-btn"
+              onClick={(e) => { e.preventDefault(); onWalkFromHere(camp.lat!, camp.lng!, camp.name) }}
+            >
+              🚶 Walk from here
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -360,8 +382,8 @@ const EMPTY_MESSAGES: Record<TabId, { emoji: string; text: string }> = {
   weather: { emoji: '🌤️', text: 'Weather data unavailable for this location.' },
 }
 
-function ResultGrid({ places, loading, children, tabId }: {
-  places: PlaceResult[]; loading: boolean; children?: React.ReactNode; tabId?: TabId
+function ResultGrid({ places, loading, children, tabId, onWalkFromHere }: {
+  places: PlaceResult[]; loading: boolean; children?: React.ReactNode; tabId?: TabId; onWalkFromHere?: (lat: number, lng: number, name: string) => void
 }) {
   if (loading) {
     return (
@@ -381,7 +403,7 @@ function ResultGrid({ places, loading, children, tabId }: {
   }
   return (
     <div className="card-grid">
-      {places.map((place) => <PlaceCard key={place.id} place={place} />)}
+      {places.map((place) => <PlaceCard key={place.id} place={place} onWalkFromHere={onWalkFromHere} />)}
       {children}
     </div>
   )
@@ -389,9 +411,9 @@ function ResultGrid({ places, loading, children, tabId }: {
 
 // ── Campgrounds Grid ─────────────────────────────────────────────────
 function CampgroundsGrid({
-  campgrounds, loading, rangeStart, rangeEnd, isPeakSeason,
+  campgrounds, loading, rangeStart, rangeEnd, isPeakSeason, onWalkFromHere,
 }: {
-  campgrounds: CampgroundResult[]; loading: boolean; rangeStart: string; rangeEnd: string; isPeakSeason: boolean
+  campgrounds: CampgroundResult[]; loading: boolean; rangeStart: string; rangeEnd: string; isPeakSeason: boolean; onWalkFromHere?: (lat: number, lng: number, name: string) => void
 }) {
   if (loading) {
     return (
@@ -411,7 +433,7 @@ function CampgroundsGrid({
   return (
     <div className="card-grid">
       {campgrounds.map((camp, i) => (
-        <CampgroundCard key={i} camp={camp} rangeStart={rangeStart} rangeEnd={rangeEnd} isPeakSeason={isPeakSeason} />
+        <CampgroundCard key={i} camp={camp} rangeStart={rangeStart} rangeEnd={rangeEnd} isPeakSeason={isPeakSeason} onWalkFromHere={onWalkFromHere} />
       ))}
     </div>
   )
@@ -669,6 +691,7 @@ export default function Home() {
     const d = new Date(); d.setDate(d.getDate() + 3); return d.toISOString().slice(0, 10)
   })
   const [savedCities, setSavedCities] = useState<string[]>([])
+  const [walkOrigin, setWalkOrigin] = useState<{ lat: number; lng: number; name: string } | null>(null)
 
   // Load saved cities and last city from localStorage on mount
   useEffect(() => {
@@ -810,6 +833,7 @@ export default function Home() {
             rangeStart={rangeStart}
             rangeEnd={rangeEnd}
             isPeakSeason={peakSeason}
+            onWalkFromHere={(lat, lng, name) => setWalkOrigin({ lat, lng, name })}
           />
           {/* Fall back to Google Places parks if no campground data */}
           {(!campgroundsLoading && campgrounds.length === 0) && (
@@ -818,7 +842,7 @@ export default function Home() {
                 <span className="emoji">🌲</span>
                 No Recreation.gov data for this area — showing Google Places RV parks below.
               </p>
-              <ResultGrid places={data.parks || []} loading={false} tabId="parks" />
+              <ResultGrid places={data.parks || []} loading={false} tabId="parks" onWalkFromHere={(lat, lng, name) => setWalkOrigin({ lat, lng, name })} />
             </>
           )}
           {campgroundsLoading && (
@@ -836,8 +860,17 @@ export default function Home() {
               Enter a destination above to get started.
             </p>
           )}
-          <ResultGrid places={data[activeTab] || []} loading={loading && !!city} tabId={activeTab} />
+          <ResultGrid places={data[activeTab] || []} loading={loading && !!city} tabId={activeTab} onWalkFromHere={(lat, lng, name) => setWalkOrigin({ lat, lng, name })} />
         </>
+      )}
+
+      {walkOrigin && (
+        <WalkRadiusSheet
+          originLat={walkOrigin.lat}
+          originLng={walkOrigin.lng}
+          originName={walkOrigin.name}
+          onClose={() => setWalkOrigin(null)}
+        />
       )}
 
       <footer className="app-footer">

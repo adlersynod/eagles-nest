@@ -398,6 +398,28 @@ body {
   border-color: rgba(240,192,64,0.3);
 }
 
+.card-walk-btn {
+  flex: 1;
+  display: block;
+  text-align: center;
+  background: rgba(110,231,160,0.08);
+  border: 1px solid rgba(110,231,160,0.2);
+  border-radius: 8px;
+  padding: 0.5rem;
+  color: #6ee7a0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s, color 0.2s;
+  cursor: pointer;
+}
+
+.card-walk-btn:hover {
+  background: rgba(110,231,160,0.16);
+  color: #6ee7a0;
+  border-color: rgba(110,231,160,0.35);
+}
+
 /* ── Skeleton Loading ──────────────────────────── */
 .place-card-skeleton .skeleton-photo {
   width: 100%;
