@@ -54,25 +54,21 @@ const MONTH_NAMES = ['January','February','March','April','May','June',
 
 function cToF(c: number): number { return Math.round((c * 9) / 5 + 32) }
 
-async function fetchMonthlyNormals(lat: number, lng: number, yearMonth: string):
+// Fetch monthly climate normals using Open-Meteo Climate API (no date range needed)
+async function fetchMonthlyNormals(lat: number, lng: number, month: number):
   Promise<{ avgHigh: number | null; avgLow: number | null; avgPrecip: number | null }> {
-  const year = parseInt(yearMonth.slice(0, 4))
-  const lastYear = year - 1
-  const start = `${lastYear}-${yearMonth.slice(5)}`
-  const daysInMonth = new Date(lastYear, parseInt(yearMonth.slice(5)), 0).getDate()
-  const end = `${lastYear}-${yearMonth.slice(5)}-${String(daysInMonth).padStart(2,'0')}`
-
   try {
+    // Climate API: daily data for a full month (most recent available year)
     const res = await fetch(
-      `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`
+      `https://climate-api.open-meteo.com/v1/climate?latitude=${lat}&longitude=${lng}&start_date=2024-${String(month).padStart(2,'0')}-01&end_date=2024-${String(month).padStart(2,'0')}-28&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`
     )
     if (!res.ok) return { avgHigh: null, avgLow: null, avgPrecip: null }
     const data = await res.json()
     const daily = data?.daily
     if (!daily?.temperature_2m_max?.length) return { avgHigh: null, avgLow: null, avgPrecip: null }
-    const maxVals = daily.temperature_2m_max.filter((v: unknown) => v != null) as number[]
-    const minVals = daily.temperature_2m_min.filter((v: unknown) => v != null) as number[]
-    const precVals = daily.precipitation_sum.map((v: unknown) => (v == null ? 0 : v)) as number[]
+    const maxVals = (daily.temperature_2m_max as (number | null)[]).filter((v): v is number => v != null)
+    const minVals = (daily.temperature_2m_min as (number | null)[]).filter((v): v is number => v != null)
+    const precVals = (daily.precipitation_sum as (number | null)[]).map(v => v ?? 0)
     if (!maxVals.length) return { avgHigh: null, avgLow: null, avgPrecip: null }
     const avgHigh = maxVals.reduce((s, v) => s + v, 0) / maxVals.length
     const avgLow = minVals.reduce((s, v) => s + v, 0) / minVals.length
@@ -182,7 +178,6 @@ export async function GET(request: NextRequest) {
   }
 
   const targetDate = dateParam || new Date().toISOString().slice(0, 10)
-  const targetMonth = targetDate.slice(0, 7) // YYYY-MM
   const monthName = MONTH_NAMES[parseInt(targetDate.slice(5, 7)) - 1]
 
   // ── Step 4: Historical averages for exact date ──────────────────
@@ -216,7 +211,7 @@ export async function GET(request: NextRequest) {
   }
   if (lat !== 0 && lng !== 0) {
     try {
-      const normals = await fetchMonthlyNormals(lat, lng, targetMonth)
+      const normals = await fetchMonthlyNormals(lat, lng, parseInt(targetDate.slice(5, 7)))
       if (normals.avgHigh != null) {
         seasonal.avgHigh = `${cToF(normals.avgHigh as number)}°F`
         seasonal.avgLow = `${cToF(normals.avgLow as number)}°F`
