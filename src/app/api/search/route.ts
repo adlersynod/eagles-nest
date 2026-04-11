@@ -119,6 +119,12 @@ export async function GET(request: NextRequest) {
       }
     })
 
+    // Fire-and-forget usage tracker — doesn't block response
+    fetch(new URL('/api/monitor', process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000').toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }).catch(() => {}) // intentionally ignored
+
     return NextResponse.json({ results, city })
   } catch (error) {
     console.error('Search error:', error)
