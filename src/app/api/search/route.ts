@@ -118,11 +118,6 @@ export async function GET(request: NextRequest) {
       body.includedType = config.includedType
     }
 
-    // Local mode: rank by distance to find nearby hidden gems
-    if (isLocal) {
-      body.rankBy = 'distance'
-    }
-
     const fieldMask = [
       'places.name', 'places.displayName', 'places.rating', 'places.priceLevel',
       'places.types', 'places.primaryType', 'places.photos', 'places.formattedAddress',
