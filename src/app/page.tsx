@@ -553,13 +553,14 @@ function WeatherDisplay({ city }: { city: string }) {
         <DatePicker
           value={selectedDate}
           onChange={handleDateChange}
-          label={selectedDate ? `Forecast for: ${formatDate(selectedDate)}` : 'Select Date'}
+          label={selectedDate ? `Forecast for: ${formatDate(selectedDate)}` : 'Plan your trip — select a date'}
+          maxDays={180}
         />
         {risk && (
           <div className={`travel-risk-badge risk-${weather!.travelRisk}`}>
             {risk.badge} {risk.label}
             {weather!.historical.avgPrecipMm != null && (
-              <span className="risk-precip"> &nbsp;· {weather!.historical.avgPrecipMm}mm avg precip</span>
+              <span className="risk-precip"> &nbsp;· {weather!.historical.avgPrecipMm}mm avg precip last year</span>
             )}
           </div>
         )}
