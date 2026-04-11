@@ -97,14 +97,14 @@ export async function GET(request: NextRequest) {
       const types = (place.types as string[]) || []
       const primaryType = String(place.primaryType || types[0] || '')
       const address = String(place.formattedAddress || '')
-      const gmapsUrl = String(place.googleMapsUri || '')
-      const mapUrl = gmapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayName)}`
-
       const photos = (place.photos as Array<{ name: string }>) || []
       const photoName = photos[0]?.name
       const photoUrl = photoName
         ? `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=400&key=${apiKey}`
         : null
+
+      // Use Google Maps search URL: most reliable across all platforms/devices
+      const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayName)}&zoom=15`
 
       return {
         id: placeId,
