@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const BRAVE_API_KEY = process.env.BRAVE_API_KEY || 'BSAm4vEghgHSup4G8fXmeXWWzijdlzF'
+const BRAVE_API_KEY = process.env.BRAVE_API_KEY
 
 type SearchResult = {
   title: string
