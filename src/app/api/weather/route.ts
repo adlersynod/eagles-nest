@@ -14,30 +14,6 @@ type HistoricalData = {
   avgPrecipMm: number | null
 }
 
-type OpenMeteoGeoResponse = Array<{
-  latitude: number
-  longitude: number
-  name: string
-  country: string
-}>
-
-type OpenMeteoForecastResponse = {
-  daily: {
-    time: string[]
-    weather_code: number[]
-    temperature_2m_max: number[]
-    temperature_2m_min: number[]
-  }
-}
-
-type OpenMeteoArchiveResponse = {
-  daily: {
-    temperature_2m_max: number[]
-    temperature_2m_min: number[]
-    precipitation_sum: number[]
-  } | null
-}
-
 // ── Weather code → icon + description ───────────────────────────────
 function weatherCodeToIconAndDesc(code: number): { icon: string; desc: string } {
   if (code === 0) return { icon: '☀️', desc: 'Clear sky' }
@@ -53,10 +29,22 @@ function weatherCodeToIconAndDesc(code: number): { icon: string; desc: string } 
   return { icon: '🌤️', desc: 'Unknown' }
 }
 
+function getWttrIcon(desc: string): string {
+  const d = desc.toLowerCase()
+  if (d.includes('sun') || d.includes('clear')) return '☀️'
+  if (d.includes('partly')) return '⛅'
+  if (d.includes('cloud') || d.includes('overcast')) return '☁️'
+  if (d.includes('rain') || d.includes('drizzle')) return '🌧️'
+  if (d.includes('thunder') || d.includes('storm')) return '⛈️'
+  if (d.includes('snow')) return '❄️'
+  if (d.includes('fog') || d.includes('mist')) return '🌫️'
+  return '🌤️'
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const city = searchParams.get('city')
-  const dateParam = searchParams.get('date') // YYYY-MM-DD
+  const dateParam = searchParams.get('date')
 
   if (!city || city.length > 200) {
     return NextResponse.json({ error: 'Missing or invalid city parameter.' }, { status: 400 })
@@ -74,14 +62,15 @@ export async function GET(request: NextRequest) {
   // ── Step 1: Geocode via Open-Meteo ───────────────────────────────
   try {
     const geoRes = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(citySanitized)}&count=1`
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(citySanitized)}&count=1`,
+      { signal: AbortSignal.timeout(5000) }
     )
     if (geoRes.ok) {
-      const geoData: OpenMeteoGeoResponse = await geoRes.json()
-      if (geoData.length > 0) {
-        lat = geoData[0].latitude
-        lng = geoData[0].longitude
-        resolvedName = `${geoData[0].name}, ${geoData[0].country}`
+      const geoData = await geoRes.json()
+      if (geoData.results && geoData.results.length > 0) {
+        lat = geoData.results[0].latitude
+        lng = geoData.results[0].longitude
+        resolvedName = `${geoData.results[0].name}, ${geoData.results[0].country}`
       }
     }
   } catch (e) {
@@ -93,32 +82,30 @@ export async function GET(request: NextRequest) {
   if (lat !== 0 && lng !== 0) {
     try {
       const forecastRes = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`,
+        { signal: AbortSignal.timeout(8000) }
       )
       if (forecastRes.ok) {
         const fcData = await forecastRes.json()
-        console.error('OpenMeteo raw response keys:', Object.keys(fcData || {}))
-        console.error('OpenMeteo daily:', JSON.stringify(fcData?.daily)?.slice(0, 200))
-        const days = fcData?.daily
-        if (days?.time?.length) {
-          forecast = days.time.map((date: string, i: number) => {
-            const code = days.weather_code?.[i] ?? 0
+        const daily = fcData?.daily
+        if (daily && Array.isArray(daily.time) && daily.time.length > 0) {
+          forecast = daily.time.map((date: string, i: number) => {
+            const code = daily.weather_code?.[i] ?? 0
             const { icon, desc } = weatherCodeToIconAndDesc(code)
             return {
               date,
-              maxTemp: `${Math.round(days.temperature_2m_max?.[i] ?? 0)}°C`,
-              minTemp: `${Math.round(days.temperature_2m_min?.[i] ?? 0)}°C`,
+              maxTemp: `${Math.round(daily.temperature_2m_max?.[i] ?? 0)}°C`,
+              minTemp: `${Math.round(daily.temperature_2m_min?.[i] ?? 0)}°C`,
               desc,
               icon,
             }
           })
-          console.error('OpenMeteo forecast built, days:', forecast.length)
-        } else {
-          console.error('OpenMeteo days.time empty or missing, days:', days)
         }
+      } else {
+        console.error('Open-Meteo forecast fetch not ok:', forecastRes.status)
       }
     } catch (e) {
-      console.error('Forecast error:', e)
+      console.error('Open-Meteo forecast error:', e)
     }
   }
 
@@ -126,7 +113,8 @@ export async function GET(request: NextRequest) {
   if (!forecast.length) {
     try {
       const wttrRes = await fetch(
-        `https://wttr.in/${encodeURIComponent(citySanitized)}?format=j1`
+        `https://wttr.in/${encodeURIComponent(citySanitized)}?format=j1`,
+        { signal: AbortSignal.timeout(5000) }
       )
       if (wttrRes.ok) {
         const wttrData = await wttrRes.json()
@@ -159,23 +147,22 @@ export async function GET(request: NextRequest) {
     try {
       const lastYear = String(parseInt(dateParam.slice(0, 4)) - 1) + dateParam.slice(4)
       const archiveRes = await fetch(
-        `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${lastYear}&end_date=${lastYear}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`
+        `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${lastYear}&end_date=${lastYear}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`,
+        { signal: AbortSignal.timeout(8000) }
       )
       if (archiveRes.ok) {
-        const archiveData: OpenMeteoArchiveResponse = await archiveRes.json()
-        if (archiveData.daily) {
-          const temps = archiveData.daily.temperature_2m_max
-          const mins = archiveData.daily.temperature_2m_min
-          const precips = archiveData.daily.precipitation_sum
+        const archiveData = await archiveRes.json()
+        const daily = archiveData?.daily
+        if (daily && Array.isArray(daily.temperature_2m_max) && daily.temperature_2m_max.length > 0) {
           historical = {
-            avgHigh: temps[0] != null ? `${Math.round(temps[0])}°C` : null,
-            avgLow: mins[0] != null ? `${Math.round(mins[0])}°C` : null,
-            avgPrecipMm: precips[0] != null ? parseFloat(precips[0].toFixed(1)) : null,
+            avgHigh: daily.temperature_2m_max[0] != null ? `${Math.round(daily.temperature_2m_max[0])}°C` : null,
+            avgLow: daily.temperature_2m_min[0] != null ? `${Math.round(daily.temperature_2m_min[0])}°C` : null,
+            avgPrecipMm: daily.precipitation_sum?.[0] != null ? parseFloat(daily.precipitation_sum[0].toFixed(1)) : null,
           }
         }
       }
     } catch (e) {
-      console.error('Historical error:', e)
+      console.error('Historical archive error:', e)
     }
   }
 
@@ -186,19 +173,10 @@ export async function GET(request: NextRequest) {
     else if (historical.avgPrecipMm > 2) travelRisk = 'moderate'
   }
 
-  // ── Step 6: Filter to requested date ────────────────────────────
+  // ── Step 6: Slice forecast to 3 days starting from target date ──
   const targetDate = dateParam || new Date().toISOString().slice(0, 10)
-  const today = new Date().toISOString().slice(0, 10)
-
-  // Find the best starting index: target date if in future, today if in past, target otherwise
-  let startIdx = 0
   const targetIdx = forecast.findIndex((d) => d.date === targetDate)
-  if (targetIdx >= 0) {
-    startIdx = targetIdx
-  } else if (targetDate < today) {
-    // Requested date is in the past — show most recent 3 days available
-    startIdx = Math.max(0, forecast.length - 3)
-  }
+  const startIdx = targetIdx >= 0 ? targetIdx : 0
   const forecastSlice = forecast.slice(startIdx, startIdx + 3)
 
   return NextResponse.json({
@@ -208,16 +186,4 @@ export async function GET(request: NextRequest) {
     historical,
     travelRisk,
   })
-}
-
-function getWttrIcon(desc: string): string {
-  const d = desc.toLowerCase()
-  if (d.includes('sun') || d.includes('clear')) return '☀️'
-  if (d.includes('partly')) return '⛅'
-  if (d.includes('cloud') || d.includes('overcast')) return '☁️'
-  if (d.includes('rain') || d.includes('drizzle')) return '🌧️'
-  if (d.includes('thunder') || d.includes('storm')) return '⛈️'
-  if (d.includes('snow')) return '❄️'
-  if (d.includes('fog') || d.includes('mist')) return '🌫️'
-  return '🌤️'
 }
