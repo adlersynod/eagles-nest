@@ -677,6 +677,9 @@ export default function Home() {
 
   const tripMonth = rangeStart ? new Date(rangeStart + 'T00:00:00').getMonth() + 1 : new Date().getMonth() + 1
   const peakSeason = tripMonth >= 6 && tripMonth <= 9
+  const daysUntilTrip = rangeStart
+    ? Math.max(0, Math.round((new Date(rangeStart + 'T00:00:00').getTime() - Date.now()) / 86400000))
+    : null
 
   return (
     <main className="app">
@@ -717,6 +720,11 @@ export default function Home() {
                   <span className="vacancy-timestamp">Recreation.gov · Updated {campgroundsUpdated}</span>
                 )}
               </div>
+              {daysUntilTrip !== null && daysUntilTrip > 0 && (
+                <div className="trip-countdown">
+                  <span className="countdown-badge">⏱️ {daysUntilTrip} days until your trip</span>
+                </div>
+              )}
               <DateRangePicker
                 startValue={rangeStart}
                 endValue={rangeEnd}

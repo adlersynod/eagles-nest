@@ -741,6 +741,20 @@ body {
   white-space: nowrap;
 }
 
+.trip-countdown {
+  margin-bottom: 0.6rem;
+}
+
+.countdown-badge {
+  background: rgba(110, 231, 160, 0.15);
+  color: #6ee7a0;
+  border: 1px solid rgba(110, 231, 160, 0.3);
+  padding: 0.25rem 0.75rem;
+  border-radius: 2rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 /* ── Saved City Chips ───────────────────────────────────── */
 .saved-cities-row {
   display: flex;
