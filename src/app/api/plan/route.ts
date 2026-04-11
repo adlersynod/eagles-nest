@@ -3,7 +3,7 @@ import { verifySessionToken } from '@/lib/auth'
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions'
 const MODEL = 'minimax/MiniMax-M2.7'
-const MAX_TOKENS = 1200
+const MAX_TOKENS = 1600
 
 async function getSessionFromRequest(req: NextRequest): Promise<string | null> {
   return req.cookies.get('eagles_nest_session')?.value ?? null
@@ -97,23 +97,28 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
     if (rawContent && typeof rawContent === 'object') {
       const msg = rawContent as Record<string, unknown>
       const contentField = msg['content']
+      const reasoningField = msg['reasoning']
       if (typeof contentField === 'string' && contentField.trim().length > 0) {
         content = contentField
+      } else if (typeof reasoningField === 'string' && reasoningField.trim().length > 0) {
+        // MiniMax-Text-01 sometimes returns the actual text in the reasoning field
+        content = reasoningField
       } else {
-        // Log what we got for debugging
-        console.error('Plan API - content field issue:', JSON.stringify(msg).substring(0, 200))
+        console.error('Plan API - content field issue:', JSON.stringify(msg).substring(0, 300))
       }
     } else if (typeof rawContent === 'string') {
       content = rawContent
     }
 
+    console.error('Plan API - extracted content length:', content ? content.length : 'null')
+
     if (!content || content.trim() === '') {
-      console.error('Plan API - empty content, rawContent:', JSON.stringify(rawContent)?.substring(0, 100))
-      return NextResponse.json({ error: 'No plan generated. Please try again.' }, { status: 500 })
+      console.error('Plan API - empty content, rawContent:', JSON.stringify(rawContent)?.substring(0, 300))
+      return NextResponse.json({ error: 'No plan generated. The AI returned an empty response. Please try again.' }, { status: 500 })
     }
 
     // Strip markdown code fences
-    let jsonStr = content.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()
+    const jsonStr = content.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()
 
     let plan
     try {
@@ -124,10 +129,13 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
         try {
           plan = JSON.parse(jsonMatch[0])
         } catch {
-          return NextResponse.json({ error: 'Plan format error. Please try again.' }, { status: 500 })
+          const snippet = jsonStr.substring(0, 150).replace(/\n/g, ' ')
+          console.error('Plan JSON parse failed. Content snippet:', snippet)
+          return NextResponse.json({ error: `Plan format error. The AI returned invalid JSON. Please try again. (Got: ${snippet})` }, { status: 500 })
         }
       } else {
-        return NextResponse.json({ error: 'Plan format error. Please try again.' }, { status: 500 })
+        const snippet = jsonStr.substring(0, 150).replace(/\n/g, ' ')
+        return NextResponse.json({ error: `Plan format error. Expected JSON but got: ${snippet}` }, { status: 500 })
       }
     }
 
