@@ -13,6 +13,10 @@ export async function GET(request: NextRequest) {
   const city = searchParams.get('city')
   const type = searchParams.get('type')
 
+  if (!BRAVE_API_KEY) {
+    return NextResponse.json({ error: 'Search service misconfigured.' }, { status: 500 })
+  }
+
   if (!city) {
     return NextResponse.json({ error: 'Missing city parameter' }, { status: 400 })
   }
