@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
     const places = rawPlaces as Record<string, unknown>[]
     const apiKey = process.env.GOOGLE_PLACES_API_KEY || ''
 
+    const debugInfo = { googlePlaceCount: places.length, lat, lng, radiusMeters }
     console.log(`[nearby] Google returned ${places.length} places for ${lat},${lng} within ${radiusMeters}m`)
 
     const results = places.map((place) => {
@@ -149,6 +150,7 @@ export async function POST(request: NextRequest) {
       results,
       originName: originName || 'Selected location',
       radiusMeters,
+      _debug: debugInfo,
     })
   } catch (err) {
     console.error('Nearby API error:', err)
