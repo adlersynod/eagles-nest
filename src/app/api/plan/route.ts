@@ -50,6 +50,9 @@ Times: specific (8:30 AM, 12:45 PM). NEVER chains. Prefer the provided places li
 Places: ${contextPlacesText}
 Respond with only valid JSON starting with {`
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 55_000);
+
     const response = await fetch(OPENROUTER_BASE, {
       method: 'POST',
       headers: {
@@ -67,7 +70,9 @@ Respond with only valid JSON starting with {`
         max_tokens: MAX_TOKENS,
         temperature: 0.8,
       }),
+      signal: controller.signal as RequestInit['signal'],
     })
+    clearTimeout(timeout)
 
     if (!response.ok) {
       const errText = await response.text()
