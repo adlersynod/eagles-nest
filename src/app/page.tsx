@@ -34,6 +34,7 @@ type CampgroundResult = {
   amenities: string[]
   photoUrl: string | null
   bookingUrl: string | null
+  mapUrl: string | null
   vacancyStatus: 'available' | 'limited' | 'likely_full' | 'unknown'
   vacancyNote: string
 }
@@ -270,7 +271,7 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
   return (
     <div className="place-card">
       {camp.photoUrl && (
-        <a href={camp.bookingUrl || '#'} target="_blank" rel="noopener noreferrer" className="card-photo-link">
+        <a href={camp.mapUrl || camp.bookingUrl || '#'} target="_blank" rel="noopener noreferrer" className="card-photo-link">
           <div className="card-photo">
             {!imgError ? (
               <img src={camp.photoUrl} alt={camp.name} onError={() => setImgError(true)} loading="lazy" />
@@ -287,10 +288,10 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
         </a>
       )}
       <div className="card-body">
-        <a href={camp.bookingUrl || '#'} target="_blank" rel="noopener noreferrer" className="card-name-link">
+        <a href={camp.mapUrl || camp.bookingUrl || '#'} target="_blank" rel="noopener noreferrer" className="card-name-link">
           <h3 className="card-name">{camp.name}</h3>
         </a>
-        {camp.price && <p className="card-price">{camp.price}/night</p>}
+        {camp.price && <p className="card-price">{camp.price}</p>}
         <div className="card-meta">
           {camp.rating && <StarRating rating={camp.rating} />}
           {isPeakSeason && (
@@ -312,12 +313,14 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
           </p>
         )}
         <div className="card-actions card-actions-row">
-          <a href={camp.bookingUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(camp.name)}&zoom=15`} target="_blank" rel="noopener noreferrer" className="card-directions-btn check-avail-btn">
-            {camp.bookingUrl ? 'Check Availability' : 'View on Maps'}
+          <a href={camp.bookingUrl || camp.mapUrl || '#'} target="_blank" rel="noopener noreferrer" className="card-directions-btn check-avail-btn">
+            {camp.bookingUrl ? '🎟️ Check Availability' : '🗺️ View on Maps'}
           </a>
-          <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(camp.name)}&zoom=15`} target="_blank" rel="noopener noreferrer" className="card-directions-btn">
-            📍 Directions
-          </a>
+          {camp.mapUrl && (
+            <a href={camp.mapUrl} target="_blank" rel="noopener noreferrer" className="card-directions-btn">
+              📍 Directions
+            </a>
+          )}
         </div>
       </div>
     </div>
