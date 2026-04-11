@@ -345,6 +345,60 @@ function CampgroundsGrid({
   )
 }
 
+// ── Parks Weather Banner ─────────────────────────────────────────
+function ParksWeatherBanner({ city, rangeStart, rangeEnd }: { city: string; rangeStart: string; rangeEnd: string }) {
+  const [weather, setWeather] = useState<{
+    location: string; forecast: WeatherDay[]; travelRisk: string
+    seasonal: { avgHigh: string | null; avgLow: string | null; avgPrecipMm: number | null; trend: string | null; monthLabel: string }
+  } | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!city || !rangeStart) return
+    setLoading(true)
+    fetch(`/api/weather?city=${encodeURIComponent(city)}&date=${rangeStart}`)
+      .then(r => r.json())
+      .then(d => { setWeather(d); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [city, rangeStart])
+
+  if (!city) return null
+
+  const nights = rangeStart && rangeEnd
+    ? Math.max(0, Math.round((new Date(rangeEnd + 'T00:00:00').getTime() - new Date(rangeStart + 'T00:00:00').getTime()) / 86400000))
+    : 0
+
+  if (loading) {
+    return <div className="parks-weather-banner parks-weather-loading"><span>🌤️ Checking weather…</span></div>
+  }
+
+  if (!weather?.forecast?.length) return null
+
+  const risk = weather.travelRisk === 'high' ? '🔴' : weather.travelRisk === 'moderate' ? '🟡' : '🟢'
+  const nightsLabel = nights > 0 ? ` · ${nights} night${nights !== 1 ? 's' : ''}` : ''
+
+  return (
+    <div className="parks-weather-banner">
+      <div className="parks-weather-location">🌤️ {weather.location}{nightsLabel}</div>
+      <div className="parks-weather-days">
+        {weather.forecast.slice(0, Math.min(3, nights || 3)).map((day, i) => (
+          <span key={i} className="parks-weather-day">
+            <span className="parks-weather-icon">{day.icon}</span>
+            <span className="parks-weather-temps">{day.maxTemp} · {day.minTemp}</span>
+          </span>
+        ))}
+      </div>
+      {weather.seasonal && (
+        <span className="parks-weather-risk">
+          {risk} Travel risk: {weather.travelRisk}
+          {weather.seasonal.avgPrecipMm != null && ` · ${weather.seasonal.avgPrecipMm}mm avg precip`}
+          {weather.seasonal.trend && ` · ${weather.seasonal.trend} than normal`}
+        </span>
+      )}
+    </div>
+  )
+}
+
 // ── Weather Display ─────────────────────────────────────────────────
 function WeatherDisplay({ city }: { city: string }) {
   const today = new Date().toISOString().slice(0, 10)
@@ -587,6 +641,7 @@ export default function Home() {
                 maxDays={180}
                 maxNights={30}
               />
+              <ParksWeatherBanner city={city} rangeStart={rangeStart} rangeEnd={rangeEnd} />
             </div>
           )}
           <CampgroundsGrid

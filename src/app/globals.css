@@ -599,6 +599,56 @@ body {
   color: #f0c040;
 }
 
+/* ── Parks Weather Banner ─────────────────────────── */
+.parks-weather-banner {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.parks-weather-loading {
+  color: rgba(255,255,255,0.4);
+  font-size: 0.85rem;
+}
+
+.parks-weather-location {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.7);
+}
+
+.parks-weather-days {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.parks-weather-day {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.parks-weather-icon {
+  font-size: 1rem;
+}
+
+.parks-weather-temps {
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.65);
+  font-weight: 600;
+}
+
+.parks-weather-risk {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.4);
+}
+
 .book-early-global,
 .book-early-badge {
   font-size: 0.78rem;
