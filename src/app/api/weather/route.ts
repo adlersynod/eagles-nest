@@ -259,6 +259,21 @@ export async function GET(request: NextRequest) {
   }
   const forecastSlice = forecast.slice(startIdx, startIdx + 3)
 
+  // Debug: inline trend computation at return time
+  const dbg = { forecastMaxF: 0, normalHighF: 0, diff: 0 }
+  try {
+    const fcMatch = (forecastSlice[0]?.maxTemp ?? '').match(/^([\d\-]+)/)
+    dbg.forecastMaxF = fcMatch ? parseInt(fcMatch[1]) : 0
+    const clRes = await fetch(`https://climate-api.open-meteo.com/v1/climate?latitude=${lat}&longitude=${lng}&start_date=2024-${targetDate.slice(5,7)}-01&end_date=2024-${targetDate.slice(5,7)}-28&daily=temperature_2m_max&timezone=auto`)
+    if (clRes.ok) {
+      const clData = await clRes.json()
+      const vals = clData?.daily?.temperature_2m_max ?? []
+      const avgC = vals.length ? vals.reduce((s: number, v: number) => s + v, 0) / vals.length : 0
+      dbg.normalHighF = Math.round(avgC * 9 / 5 + 32)
+      dbg.diff = dbg.forecastMaxF - dbg.normalHighF
+    }
+  } catch {}
+
   return NextResponse.json({
     location: resolvedName,
     date: targetDate,
@@ -267,5 +282,6 @@ export async function GET(request: NextRequest) {
     seasonal,
     travelRisk,
     beyondForecast,
+    _debug: dbg,
   })
 }
