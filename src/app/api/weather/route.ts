@@ -97,6 +97,8 @@ export async function GET(request: NextRequest) {
       )
       if (forecastRes.ok) {
         const fcData = await forecastRes.json()
+        console.error('OpenMeteo raw response keys:', Object.keys(fcData || {}))
+        console.error('OpenMeteo daily:', JSON.stringify(fcData?.daily)?.slice(0, 200))
         const days = fcData?.daily
         if (days?.time?.length) {
           forecast = days.time.map((date: string, i: number) => {
@@ -110,6 +112,9 @@ export async function GET(request: NextRequest) {
               icon,
             }
           })
+          console.error('OpenMeteo forecast built, days:', forecast.length)
+        } else {
+          console.error('OpenMeteo days.time empty or missing, days:', days)
         }
       }
     } catch (e) {
