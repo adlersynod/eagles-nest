@@ -56,7 +56,6 @@ function cToF(c: number): number { return Math.round((c * 9) / 5 + 32) }
 
 async function fetchMonthlyNormals(lat: number, lng: number, yearMonth: string):
   Promise<{ avgHigh: number | null; avgLow: number | null; avgPrecip: number | null }> {
-  // Fetch last year of this month for seasonal normals (fast — single call)
   const year = parseInt(yearMonth.slice(0, 4))
   const lastYear = year - 1
   const start = `${lastYear}-${yearMonth.slice(5)}`
@@ -65,16 +64,19 @@ async function fetchMonthlyNormals(lat: number, lng: number, yearMonth: string):
 
   try {
     const res = await fetch(
-      `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`,
-      { signal: AbortSignal.timeout(6000) }
+      `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`
     )
     if (!res.ok) return { avgHigh: null, avgLow: null, avgPrecip: null }
     const data = await res.json()
     const daily = data?.daily
     if (!daily?.temperature_2m_max?.length) return { avgHigh: null, avgLow: null, avgPrecip: null }
-    const avgHigh = daily.temperature_2m_max.reduce((s: number, v: number) => s + v, 0) / daily.temperature_2m_max.length
-    const avgLow = daily.temperature_2m_min.reduce((s: number, v: number) => s + v, 0) / daily.temperature_2m_min.length
-    const avgPrecip = daily.precipitation_sum.reduce((s: number, v: number) => s + (v || 0), 0)
+    const maxVals = daily.temperature_2m_max.filter((v: unknown) => v != null) as number[]
+    const minVals = daily.temperature_2m_min.filter((v: unknown) => v != null) as number[]
+    const precVals = daily.precipitation_sum.map((v: unknown) => (v == null ? 0 : v)) as number[]
+    if (!maxVals.length) return { avgHigh: null, avgLow: null, avgPrecip: null }
+    const avgHigh = maxVals.reduce((s, v) => s + v, 0) / maxVals.length
+    const avgLow = minVals.reduce((s, v) => s + v, 0) / minVals.length
+    const avgPrecip = precVals.reduce((s, v) => s + v, 0)
     return { avgHigh, avgLow, avgPrecip }
   } catch {
     return { avgHigh: null, avgLow: null, avgPrecip: null }
