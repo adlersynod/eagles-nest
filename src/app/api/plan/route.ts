@@ -74,10 +74,11 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
       if (response.status === 429) {
         return NextResponse.json({ error: 'AI rate limit reached. Please wait a moment and try again.' }, { status: 429 })
       }
-      return NextResponse.json({ error: 'AI service temporarily unavailable.' }, { status: 502 })
+      return NextResponse.json({ error: `AI service error (${response.status}). Please try again.` }, { status: 502 })
     }
 
     const data = await response.json()
+    console.error('Plan API - response data:', JSON.stringify(data).substring(0, 300))
     const rawContent = data?.choices?.[0]?.message
 
     // MiniMax-M2.7: content field has the clean JSON response
