@@ -213,15 +213,16 @@ export async function GET(request: NextRequest) {
     try {
       const normals = await fetchMonthlyNormals(lat, lng, parseInt(targetDate.slice(5, 7)))
       const avgHighC = normals.avgHigh
+      const avgLowC = normals.avgLow
       if (avgHighC != null) {
         seasonal.avgHigh = `${cToF(avgHighC)}°F`
-        seasonal.avgLow = `${cToF(normals.avgLow ?? avgHighC)}°F`
+        seasonal.avgLow = `${cToF(avgLowC ?? avgHighC)}°F`
         seasonal.avgPrecipMm = normals.avgPrecip != null ? parseFloat(normals.avgPrecip.toFixed(1)) : null
 
         // Compute trend: compare forecast (°F) to seasonal normal (°F)
         const forecastHigh = parseInt(forecast[0]?.maxTemp)
         if (!isNaN(forecastHigh)) {
-          const normalHighF = cToF(avgHighC)
+          const normalHighF = cToF(avgHighC)  // normals in Celsius → convert to °F
           const diff = forecastHigh - normalHighF
           if (diff > 5) seasonal.trend = 'warmer'
           else if (diff < -5) seasonal.trend = 'cooler'
