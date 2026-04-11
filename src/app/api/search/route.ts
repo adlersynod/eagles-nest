@@ -12,10 +12,21 @@ type PlaceResult = {
   address: string
 }
 
-const TYPE_QUERIES: Record<string, string> = {
-  attractions: 'tourist attractions',
-  restaurants: 'restaurants',
-  parks: 'RV parks campgrounds',
+// Google Places New API supports type filtering via includedType
+const SEARCH_CONFIG: Record<string, { query: string; includedType?: string }> = {
+  attractions: {
+    query: 'tourist attractions',
+    includedType: 'tourist_attraction',
+  },
+  restaurants: {
+    query: 'restaurants',
+    includedType: 'restaurant',
+  },
+  parks: {
+    // Query specifically for large-rig parks (Brinkley 4100 = 45' 11")
+    query: 'large rig RV park 45 foot sites',
+    includedType: 'campground',
+  },
 }
 
 export async function GET(request: NextRequest) {
@@ -41,9 +52,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Search service misconfigured.' }, { status: 500 })
   }
 
-  const query = `${citySanitized} ${TYPE_QUERIES[type]}`
+  const config = SEARCH_CONFIG[type]
+  const textQuery = `${citySanitized} ${config.query}`
 
   try {
+    const body: Record<string, unknown> = {
+      textQuery,
+      languageCode: 'en',
+      maxResultCount: 8,
+    }
+
+    if (config.includedType) {
+      body.includedType = config.includedType
+    }
+
     const searchRes = await fetch(
       `https://places.googleapis.com/v1/places:searchText`,
       {
@@ -54,11 +76,7 @@ export async function GET(request: NextRequest) {
           'X-Goog-FieldMask':
             'places.name,places.displayName,places.rating,places.priceLevel,places.types,places.primaryType,places.photos,places.formattedAddress,places.googleMapsUri',
         },
-        body: JSON.stringify({
-          textQuery: query,
-          languageCode: 'en',
-          maxResultCount: 8,
-        }),
+        body: JSON.stringify(body),
       }
     )
 
@@ -82,7 +100,6 @@ export async function GET(request: NextRequest) {
       const gmapsUrl = String(place.googleMapsUri || '')
       const mapUrl = gmapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayName)}`
 
-      // Build photo URL from first photo reference
       const photos = (place.photos as Array<{ name: string }>) || []
       const photoName = photos[0]?.name
       const photoUrl = photoName
