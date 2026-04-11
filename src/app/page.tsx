@@ -143,26 +143,63 @@ function SavedCityChips({ cities, onSelect }: { cities: string[]; onSelect: (cit
   )
 }
 
+// ── Search Status ───────────────────────────────────────────────────
+function SearchStatus({ loading, city }: { loading: boolean; city: string }) {
+  if (!loading || !city) return null
+  return (
+    <div className="search-status">
+      <span className="search-status-dot" />
+      <span>Searching {city}…</span>
+    </div>
+  )
+}
+
 // ── Location Input ───────────────────────────────────────────────────
+const QUICK_DESTINATIONS = [
+  'Portland, OR', 'Seattle, WA', 'Phoenix, AZ', 'San Diego, CA',
+  'Denver, CO', 'Las Vegas, NV', 'Austin, TX', 'Nashville, TN',
+  'Moab, UT', 'Jackson Hole, WY', 'Asheville, NC', 'Savannah, GA',
+]
+
 function LocationInput({
   value, onChange, onSearch, loading,
 }: {
   value: string; onChange: (v: string) => void; onSearch: () => void; loading: boolean
 }) {
+  const [showTips, setShowTips] = useState(false)
   return (
-    <div className="input-row">
-      <input
-        type="text"
-        placeholder="Enter city or destination (e.g. Portland, OR)"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => (e.key === 'Enter' || (e.metaKey && e.key === 'Enter')) && !loading && onSearch()}
-        aria-label="City or destination"
-      />
-      <button onClick={onSearch} disabled={!value.trim() || loading}>
-        {loading ? '⏳…' : 'Go'}
-      </button>
-    </div>
+    <>
+      <div className="input-row">
+        <input
+          type="text"
+          placeholder="Enter city or destination (e.g. Portland, OR)"
+          value={value}
+          onChange={(e) => { onChange(e.target.value); setShowTips(e.target.value.length < 2) }}
+          onKeyDown={(e) => (e.key === 'Enter' || (e.metaKey && e.key === 'Enter')) && !loading && onSearch()}
+          onFocus={() => setShowTips(value.length < 2)}
+          onBlur={() => setTimeout(() => setShowTips(false), 150)}
+          aria-label="City or destination"
+        />
+        {value && (
+          <button className="clear-btn" onClick={() => { onChange(''); setShowTips(false) }} aria-label="Clear">
+            ✕
+          </button>
+        )}
+        <button className="go-btn" onClick={onSearch} disabled={!value.trim() || loading}>
+          {loading ? '⏳' : 'Go'}
+        </button>
+      </div>
+      {showTips && (
+        <div className="quick-dests">
+          <span className="quick-dests-label">Try:</span>
+          {QUICK_DESTINATIONS.map((d) => (
+            <button key={d} className="quick-dest-chip" onClick={() => { onChange(d); setShowTips(false) }}>
+              {d}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -425,11 +462,10 @@ function WeatherDisplay({ city }: { city: string }) {
   const today = new Date().toISOString().slice(0, 10)
   const [selectedDate, setSelectedDate] = useState<string>(today)
   const [weather, setWeather] = useState<{
-    location: string
-    date: string
-    forecast: WeatherDay[]
+    location: string; date: string; forecast: WeatherDay[]; travelRisk: string
     historical: { avgHigh: string | null; avgLow: string | null; avgPrecipMm: number | null }
-    travelRisk: 'low' | 'moderate' | 'high'
+    seasonal: { avgHigh: string | null; avgLow: string | null; avgPrecipMm: number | null; trend: string | null; monthLabel: string }
+    beyondForecast: boolean
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -462,7 +498,9 @@ function WeatherDisplay({ city }: { city: string }) {
     setSelectedDate(date)
   }
 
-  const risk = weather ? TRAVEL_RISK_LABELS[weather.travelRisk] : null
+  const risk = weather ? TRAVEL_RISK_LABELS[weather.travelRisk as 'low' | 'moderate' | 'high'] : null
+  const s = weather?.seasonal
+  const trendEmoji = s?.trend === 'warmer' ? '↗' : s?.trend === 'cooler' ? '↘' : '→'
 
   return (
     <div>
@@ -477,16 +515,25 @@ function WeatherDisplay({ city }: { city: string }) {
           <div className={`travel-risk-badge risk-${weather!.travelRisk}`}>
             {risk.badge} {risk.label}
             {weather!.historical.avgPrecipMm != null && (
-              <span className="risk-precip">
-                &nbsp;· Avg precip: {weather!.historical.avgPrecipMm}mm
-              </span>
+              <span className="risk-precip"> &nbsp;· {weather!.historical.avgPrecipMm}mm avg precip</span>
             )}
+          </div>
+        )}
+        {s?.avgHigh && (
+          <div className="seasonal-note">
+            📅 {s.monthLabel} normal: <strong>{s.avgHigh}/{s.avgLow}</strong>
+            {s.trend && <> · {trendEmoji} {s.trend} than normal</>}
+          </div>
+        )}
+        {weather?.beyondForecast && (
+          <div className="beyond-forecast-note">
+            ⏳ Beyond 16-day forecast — showing seasonal averages for {s?.monthLabel}
           </div>
         )}
       </div>
 
       {loading && (
-        <div className="card-grid">
+        <div className="weather-grid">
           {[1, 2, 3].map((i) => <SkeletonCard key={i} />)}
         </div>
       )}
@@ -497,8 +544,7 @@ function WeatherDisplay({ city }: { city: string }) {
         <>
           {weather.historical.avgHigh && (
             <div className="historical-note">
-              📊 Historical avg for {formatDate(weather.date)} last year:
-              High {weather.historical.avgHigh} / Low {weather.historical.avgLow}
+              📊 Last year on {formatDate(weather.date)}: {weather.historical.avgHigh}/{weather.historical.avgLow}
             </div>
           )}
           <div className="weather-grid">
@@ -517,13 +563,6 @@ function WeatherDisplay({ city }: { city: string }) {
             ))}
           </div>
         </>
-      )}
-
-      {!weather && !loading && !error && (
-        <p className="state-msg">
-          <span className="emoji">🌤️</span>
-          Weather will load when you visit this tab.
-        </p>
       )}
     </div>
   )
@@ -632,6 +671,7 @@ export default function Home() {
 
       <SavedCityChips cities={savedCities} onSelect={(c) => { setCity(c); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
       <LocationInput value={city} onChange={setCity} onSearch={handleSearch} loading={loading} />
+      <SearchStatus loading={loading} city={city} />
 
       <TabBar active={activeTab} onChange={setActiveTab} />
 

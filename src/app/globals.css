@@ -69,7 +69,7 @@ body {
   box-shadow: 0 0 0 3px rgba(240,192,64,0.15);
 }
 
-.input-row button {
+.input-row .go-btn {
   padding: 0.75rem 1.5rem;
   border-radius: 12px;
   border: none;
@@ -82,19 +82,73 @@ body {
   white-space: nowrap;
 }
 
-.input-row button:hover {
+.input-row .go-btn:hover {
   opacity: 0.9;
   transform: translateY(-1px);
 }
 
-.input-row button:active {
+.input-row .go-btn:active {
   transform: translateY(0);
 }
 
-.input-row button:disabled {
+.input-row .go-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+/* ── Input Clear Button ────────────────────────────── */
+.input-row .clear-btn {
+  padding: 0 0.7rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.4);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.input-row .clear-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.8);
+}
+
+/* ── Quick Destinations ───────────────────────────────── */
+.quick-dests {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 1rem;
+  animation: fadeIn 0.15s ease;
+}
+
+.quick-dests-label {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.3);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 0.2rem;
+}
+
+.quick-dest-chip {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.55);
+  padding: 0.25rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.quick-dest-chip:hover {
+  background: rgba(240,192,64,0.1);
+  border-color: rgba(240,192,64,0.3);
+  color: #f0c040;
 }
 
 /* ── Tabs ───────────────────────────────────────── */
@@ -524,6 +578,26 @@ body {
   margin-bottom: 0.75rem;
 }
 
+.seasonal-note {
+  background: rgba(110,231,160,0.08);
+  border: 1px solid rgba(110,231,160,0.2);
+  border-radius: 10px;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.78rem;
+  color: rgba(110,231,160,0.8);
+  margin-bottom: 0.5rem;
+}
+
+.beyond-forecast-note {
+  background: rgba(240,192,64,0.08);
+  border: 1px solid rgba(240,192,64,0.2);
+  border-radius: 10px;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.75rem;
+  color: rgba(240,192,64,0.7);
+  margin-bottom: 0.5rem;
+}
+
 /* ── Travel Risk Badge ───────────────────────────── */
 .travel-risk-badge {
   display: inline-flex;
@@ -848,4 +922,34 @@ body {
 
 .footer-dot {
   opacity: 0.4;
+}
+
+/* ── Search Status ────────────────────────────────── */
+.search-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.4);
+  padding: 0.35rem 0;
+  margin-bottom: 0.5rem;
+  animation: fadeIn 0.2s ease;
+}
+
+.search-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f0c040;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
 }
