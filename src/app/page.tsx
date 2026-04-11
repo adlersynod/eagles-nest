@@ -30,7 +30,7 @@ type WeatherDay = {
 type CampgroundResult = {
   name: string
   rating: number | null
-  price: string | null
+  price: string | { amount_min: number; amount_max: number; per_unit: string } | null
   amenities: string[]
   photoUrl: string | null
   bookingUrl: string | null
@@ -59,6 +59,16 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'parks', label: '🏕️ RV Parks' },
   { id: 'weather', label: '🌤️ Weather' },
 ]
+
+type PriceObj = { amount_min: number; amount_max: number; per_unit: string }
+
+function formatPrice(price: unknown): string {
+  if (!price) return ''
+  if (typeof price === 'string') return price
+  const p = price as PriceObj
+  if (p.amount_min === p.amount_max) return `$${p.amount_min}/${p.per_unit?.replace('_', 's') || 'night'}`
+  return `$${p.amount_min}–$${p.amount_max}/${p.per_unit?.replace('_', 's') || 'night'}`
+}
 
 const TYPE_LABELS: Record<string, string> = {
   amusement_park: 'Amusement Park', aquarium: 'Aquarium',
@@ -291,7 +301,7 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
         <a href={camp.mapUrl || camp.bookingUrl || '#'} target="_blank" rel="noopener noreferrer" className="card-name-link">
           <h3 className="card-name">{camp.name}</h3>
         </a>
-        {camp.price && <p className="card-price">{camp.price}</p>}
+        {camp.price && <p className="card-price">{formatPrice(camp.price)}</p>}
         <div className="card-meta">
           {camp.rating && <StarRating rating={camp.rating} />}
           {isPeakSeason && (
