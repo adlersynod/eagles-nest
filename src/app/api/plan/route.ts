@@ -80,24 +80,23 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
     const data = await response.json()
     const rawContent = data?.choices?.[0]?.message
 
-    // MiniMax-M2.7: content field has the JSON response, reasoning field has thinking
-    // Prefer content if available and non-empty, fallback to reasoning
+    // MiniMax-M2.7: content field has the clean JSON response
     let content: string | null = null
     if (rawContent && typeof rawContent === 'object') {
       const msg = rawContent as Record<string, unknown>
       const contentField = msg['content']
-      const reasoningField = msg['reasoning']
       if (typeof contentField === 'string' && contentField.trim().length > 0) {
         content = contentField
-      } else if (typeof reasoningField === 'string' && reasoningField.trim().length > 0) {
-        // Fallback to reasoning only if content is empty/null
-        content = reasoningField
+      } else {
+        // Log what we got for debugging
+        console.error('Plan API - content field issue:', JSON.stringify(msg).substring(0, 200))
       }
     } else if (typeof rawContent === 'string') {
       content = rawContent
     }
 
     if (!content || content.trim() === '') {
+      console.error('Plan API - empty content, rawContent:', JSON.stringify(rawContent)?.substring(0, 100))
       return NextResponse.json({ error: 'No plan generated. Please try again.' }, { status: 500 })
     }
 
