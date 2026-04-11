@@ -1076,3 +1076,38 @@ body {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(0.8); }
 }
+
+/* ── Mode Toggle ─────────────────────────────────── */
+.mode-toggle {
+  display: flex;
+  gap: 6px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 10px;
+  padding: 4px;
+  margin: 0 1rem 0.75rem;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: transparent;
+  color: rgba(255,255,255,0.4);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.mode-btn.active {
+  background: rgba(110,231,160,0.18);
+  color: #6ee7a0;
+  border-color: rgba(110,231,160,0.3);
+}
+
+.mode-btn:hover:not(.active) {
+  color: rgba(255,255,255,0.7);
+  background: rgba(255,255,255,0.05);
+}

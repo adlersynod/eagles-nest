@@ -4,23 +4,28 @@ type PlaceResult = {
   id: string
   name: string
   rating: number | null
+  reviewCount: number | null
   priceLevel: number | null
   types: string[]
   primaryType: string
   photoUrl: string | null
   mapUrl: string
   address: string
+  lat?: number
+  lng?: number
 }
 
 // Google Places New API supports type filtering via includedType
-const SEARCH_CONFIG: Record<string, { query: string; includedType?: string }> = {
+const SEARCH_CONFIG: Record<string, { query: string; includedType?: string; localQuery?: string }> = {
   attractions: {
     query: 'tourist attractions',
     includedType: 'tourist_attraction',
+    localQuery: 'neighborhood park OR local bar OR weird museum OR food cart OR hidden gem OR local viewpoint',
   },
   restaurants: {
     query: 'restaurants',
     includedType: 'restaurant',
+    localQuery: 'local restaurant OR food cart pod OR dive bar OR neighborhood cafe OR ethnic restaurant',
   },
   parks: {
     // Query specifically for large-rig parks (Brinkley 4100 = 45' 11")
@@ -29,10 +34,38 @@ const SEARCH_CONFIG: Record<string, { query: string; includedType?: string }> = 
   },
 }
 
+const CHAIN_KEYWORDS = [
+  'starbucks', "mcdonald's", 'olive garden', 'cheesecake factory',
+  'walmart', 'target', 'costco', 'hilton', 'marriott', 'holiday inn',
+  'mcdonald', 'burger king', 'wendys', "denny's", 'applebees',
+  'chilis', 'tgi fridays', 'outback', 'red lobster', 'longhorn',
+  'subway', 'panda express', 'chipotle', 'dominos pizza', 'pizza hut',
+  'kfc', 'taco bell', 'panera bread', 'dunkin', 'dairy queen',
+  'best western', 'sheraton', 'westin', 'hyatt', 'radisson',
+]
+
+function isChainPlace(name: string): boolean {
+  const lower = name.toLowerCase()
+  return CHAIN_KEYWORDS.some(kw => lower.includes(kw))
+}
+
+function demoteResults(places: Record<string, unknown>[]): Record<string, unknown>[] {
+  return places
+    .map((place) => {
+      const reviewCount = (place.reviews as Array<{ originalRatingCount?: { value?: number } }> | undefined)?.[0]?.originalRatingCount?.value ?? 0
+      const displayName = (place.displayName as { text: string } | null)?.text || ''
+      const isChain = isChainPlace(displayName)
+      return { place, reviewCount, isChain, isDemoted: reviewCount > 200 || isChain }
+    })
+    .filter(({ isDemoted }) => !isDemoted)
+    .map(({ place }) => place)
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const city = searchParams.get('city')
   const type = searchParams.get('type')
+  const mode = searchParams.get('mode') === 'local' ? 'local' : 'popular'
 
   if (!city || city.length > 200) {
     return NextResponse.json({ error: 'Missing or invalid city parameter.' }, { status: 400 })
@@ -53,18 +86,33 @@ export async function GET(request: NextRequest) {
   }
 
   const config = SEARCH_CONFIG[type]
-  const textQuery = `${citySanitized} ${config.query}`
+  const isLocal = mode === 'local'
+  const textQuery = isLocal && config.localQuery
+    ? `${citySanitized} ${config.localQuery}`
+    : `${citySanitized} ${config.query}`
 
   try {
     const body: Record<string, unknown> = {
       textQuery,
       languageCode: 'en',
-      maxResultCount: 8,
+      maxResultCount: isLocal ? 16 : 8,
     }
 
     if (config.includedType) {
       body.includedType = config.includedType
     }
+
+    // Local mode: rank by distance to find nearby hidden gems
+    if (isLocal) {
+      body.rankBy = 'distance'
+    }
+
+    const fieldMask = [
+      'places.name', 'places.displayName', 'places.rating', 'places.priceLevel',
+      'places.types', 'places.primaryType', 'places.photos', 'places.formattedAddress',
+      'places.googleMapsUri', 'places.location',
+      ...(isLocal ? ['places.reviews'] : []),
+    ].join(',')
 
     const searchRes = await fetch(
       `https://places.googleapis.com/v1/places:searchText`,
@@ -73,8 +121,7 @@ export async function GET(request: NextRequest) {
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask':
-            'places.name,places.displayName,places.rating,places.priceLevel,places.types,places.primaryType,places.photos,places.formattedAddress,places.googleMapsUri,places.location',
+          'X-Goog-FieldMask': fieldMask,
         },
         body: JSON.stringify(body),
       }
@@ -87,7 +134,12 @@ export async function GET(request: NextRequest) {
     }
 
     const searchData = await searchRes.json()
-    const places = searchData.places || []
+    let places = searchData.places || []
+
+    // Demote chain/high-review-count results in local mode
+    if (isLocal) {
+      places = demoteResults(places)
+    }
 
     const results: PlaceResult[] = places.slice(0, 8).map((place: Record<string, unknown>) => {
       const placeId = String(place.name || '')
@@ -102,17 +154,17 @@ export async function GET(request: NextRequest) {
       const photoUrl = photoName
         ? `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=400&key=${apiKey}`
         : null
+      const reviews = place.reviews as Array<{ originalRatingCount?: { value?: number } }> | undefined
+      const reviewCount = reviews?.[0]?.originalRatingCount?.value ?? null
 
-      // Use Google Maps search URL: most reliable across all platforms/devices
       const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayName)}&zoom=15`
-
-      // Extract lat/lng from location object
       const location = place.location as { latitude: number; longitude: number } | undefined
 
       return {
         id: placeId,
         name: displayName,
         rating,
+        reviewCount,
         priceLevel,
         types,
         primaryType,
@@ -130,7 +182,7 @@ export async function GET(request: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     }).catch(() => {}) // intentionally ignored
 
-    return NextResponse.json({ results, city })
+    return NextResponse.json({ results, city, mode })
   } catch (error) {
     console.error('Search error:', error)
     return NextResponse.json({ error: 'Failed to fetch results.' }, { status: 500 })

@@ -238,7 +238,7 @@ function TabBar({ active, onChange }: { active: TabId; onChange: (t: TabId) => v
 }
 
 // ── Visual Place Card ───────────────────────────────────────────────
-function PlaceCard({ place, onWalkFromHere }: { place: PlaceResult; onWalkFromHere?: (lat: number, lng: number, name: string) => void }) {
+function PlaceCard({ place, onWalkFromHere, badge }: { place: PlaceResult; onWalkFromHere?: (lat: number, lng: number, name: string) => void; badge?: string }) {
   const [imgError, setImgError] = useState(false)
   const category = getCategoryBadge(place.types, place.primaryType)
 
@@ -252,7 +252,8 @@ function PlaceCard({ place, onWalkFromHere }: { place: PlaceResult; onWalkFromHe
             <div className="card-photo-placeholder"><span>📍</span></div>
           )}
           <div className="card-photo-overlay">
-            <span className="category-badge">{category}</span>
+            {badge && <span className="category-badge">{badge}</span>}
+            {!badge && <span className="category-badge">{category}</span>}
           </div>
         </div>
       </ExternalLink>
@@ -382,8 +383,8 @@ const EMPTY_MESSAGES: Record<TabId, { emoji: string; text: string }> = {
   weather: { emoji: '🌤️', text: 'Weather data unavailable for this location.' },
 }
 
-function ResultGrid({ places, loading, children, tabId, onWalkFromHere }: {
-  places: PlaceResult[]; loading: boolean; children?: React.ReactNode; tabId?: TabId; onWalkFromHere?: (lat: number, lng: number, name: string) => void
+function ResultGrid({ places, loading, children, tabId, onWalkFromHere, badge }: {
+  places: PlaceResult[]; loading: boolean; children?: React.ReactNode; tabId?: TabId; onWalkFromHere?: (lat: number, lng: number, name: string) => void; badge?: string
 }) {
   if (loading) {
     return (
@@ -403,7 +404,7 @@ function ResultGrid({ places, loading, children, tabId, onWalkFromHere }: {
   }
   return (
     <div className="card-grid">
-      {places.map((place) => <PlaceCard key={place.id} place={place} onWalkFromHere={onWalkFromHere} />)}
+      {places.map((place) => <PlaceCard key={place.id} place={place} onWalkFromHere={onWalkFromHere} badge={badge} />)}
       {children}
     </div>
   )
@@ -692,6 +693,11 @@ export default function Home() {
   })
   const [savedCities, setSavedCities] = useState<string[]>([])
   const [walkOrigin, setWalkOrigin] = useState<{ lat: number; lng: number; name: string } | null>(null)
+  // Per-tab search mode: 'popular' or 'local'
+  const [searchMode, setSearchMode] = useState<Record<'attractions' | 'restaurants', 'popular' | 'local'>>({
+    attractions: 'popular',
+    restaurants: 'popular',
+  })
 
   // Load saved cities and last city from localStorage on mount
   useEffect(() => {
@@ -727,12 +733,13 @@ export default function Home() {
     const fresh: Record<string, PlaceResult[]> = { attractions: [], restaurants: [], parks: [] }
 
     try {
-      // Run Google Places searches in parallel
+      // Run Google Places searches in parallel — use current mode per tab
       const promises = tabs.map(async (tab) => {
-        const res = await fetch(`/api/search?city=${encodeURIComponent(dest)}&type=${tab}`)
+        const mode = tab === 'parks' ? 'popular' : (searchMode[tab as 'attractions' | 'restaurants'] || 'popular')
+        const res = await fetch(`/api/search?city=${encodeURIComponent(dest)}&type=${tab}&mode=${mode}`)
         const json = await res.json()
         if (!res.ok) throw new Error(json.error || 'Search failed')
-        return { tab, results: json.results || [] }
+        return { tab, results: json.results || [], mode }
       })
 
       const settled = await Promise.all(promises)
@@ -783,6 +790,35 @@ export default function Home() {
       <SearchStatus loading={loading} city={city} />
 
       <TabBar active={activeTab} onChange={setActiveTab} />
+
+      {/* Mode toggle: Popular / Local Gems — only on attractions + restaurants */}
+      {(activeTab === 'attractions' || activeTab === 'restaurants') && city && (
+        <div className="mode-toggle">
+          <button
+            className={`mode-btn ${searchMode[activeTab as 'attractions' | 'restaurants'] === 'popular' ? 'active' : ''}`}
+            onClick={() => setSearchMode(prev => ({ ...prev, [activeTab]: 'popular' }))}
+          >
+            🌍 Popular
+          </button>
+          <button
+            className={`mode-btn ${searchMode[activeTab as 'attractions' | 'restaurants'] === 'local' ? 'active' : ''}`}
+            onClick={() => {
+              const newMode = searchMode[activeTab as 'attractions' | 'restaurants'] === 'local' ? 'popular' : 'local'
+              setSearchMode(prev => ({ ...prev, [activeTab]: newMode }))
+              if (!city.trim()) return
+              setLoading(true)
+              const tab = activeTab as 'attractions' | 'restaurants'
+              fetch(`/api/search?city=${encodeURIComponent(city)}&type=${tab}&mode=${newMode}`)
+                .then(r => r.json())
+                .then(d => { if (d.results) setData(prev => ({ ...prev, [tab]: d.results })) })
+                .catch(() => {})
+                .finally(() => setLoading(false))
+            }}
+          >
+            🗺️ Local Gems
+          </button>
+        </div>
+      )}
 
       {activeTab === 'weather' ? (
         <WeatherDisplay city={city} />
@@ -860,7 +896,18 @@ export default function Home() {
               Enter a destination above to get started.
             </p>
           )}
-          <ResultGrid places={data[activeTab] || []} loading={loading && !!city} tabId={activeTab} onWalkFromHere={(lat, lng, name) => setWalkOrigin({ lat, lng, name })} />
+          <ResultGrid
+            places={data[activeTab] || []}
+            loading={loading && !!city}
+            tabId={activeTab}
+            onWalkFromHere={(lat, lng, name) => setWalkOrigin({ lat, lng, name })}
+            badge={
+              (activeTab === 'attractions' || activeTab === 'restaurants') &&
+              searchMode[activeTab] === 'local'
+                ? '🏷️ Local Pick'
+                : undefined
+            }
+          />
         </>
       )}
 
