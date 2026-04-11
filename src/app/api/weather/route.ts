@@ -222,12 +222,14 @@ export async function GET(request: NextRequest) {
   const forecastSlice = forecast.slice(startIdx, startIdx + 3)
 
   // Step 7: Compute trend — compare forecast to seasonal normal
-  // (done inline with the forecastSlice to avoid any stale closure issues)
-  const fcHighF = parseTemp(forecastSlice[0]?.maxTemp ?? '')
-  const normHighF = parseTemp(seasonal.avgHigh ?? '')
-  if (!isNaN(fcHighF) && !isNaN(normHighF)) {
-    const diff = fcHighF - normHighF
-    seasonal.trend = diff > 5 ? 'warmer' : diff < -5 ? 'cooler' : 'normal'
+  // Only show trend when we have actual forecast data (not last-available days)
+  if (!beyondForecast) {
+    const fcHighF = parseTemp(forecastSlice[0]?.maxTemp ?? '')
+    const normHighF = parseTemp(seasonal.avgHigh ?? '')
+    if (!isNaN(fcHighF) && !isNaN(normHighF)) {
+      const diff = fcHighF - normHighF
+      seasonal.trend = diff > 5 ? 'warmer' : diff < -5 ? 'cooler' : 'normal'
+    }
   }
 
   // Step 8: Travel risk

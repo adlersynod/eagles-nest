@@ -619,6 +619,9 @@ export default function Home() {
     setError(null)
     setActiveTab('attractions')
     setCampgrounds([])
+    // Reset date range to today..today+3 when searching a new city
+    setRangeStart(todayStr)
+    setRangeEnd(new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10))
 
     const tabs = ['attractions', 'restaurants', 'parks'] as const
     const fresh: Record<string, PlaceResult[]> = { attractions: [], restaurants: [], parks: [] }
