@@ -215,19 +215,18 @@ export async function GET(request: NextRequest) {
       const avgHighC = normals.avgHigh
       const avgLowC = normals.avgLow
       if (avgHighC != null) {
-        seasonal.avgHigh = `${cToF(avgHighC)}°F`
-        seasonal.avgLow = `${cToF(avgLowC ?? avgHighC)}°F`
+        const normalHighF = Math.round(avgHighC * 9 / 5 + 32)
+        const normalLowF = Math.round((avgLowC ?? avgHighC) * 9 / 5 + 32)
+        seasonal.avgHigh = `${normalHighF}°F`
+        seasonal.avgLow = `${normalLowF}°F`
         seasonal.avgPrecipMm = normals.avgPrecip != null ? parseFloat(normals.avgPrecip.toFixed(1)) : null
 
         // Compute trend: compare forecast (°F) to seasonal normal (°F)
-        const forecastHigh = parseInt(forecast[0]?.maxTemp)
+        const forecastMatch = forecast[0]?.maxTemp?.match(/^([\d\-]+)/)
+        const forecastHigh = forecastMatch ? parseInt(forecastMatch[1]) : NaN
         if (!isNaN(forecastHigh)) {
-          const normalHighF = cToF(avgHighC)
           const diff = forecastHigh - normalHighF
-          console.error(`TREND: forecastHigh=${forecastHigh} normalHighF=${normalHighF} avgHighC=${avgHighC} diff=${diff}`)
-          if (diff > 5) seasonal.trend = 'warmer'
-          else if (diff < -5) seasonal.trend = 'cooler'
-          else seasonal.trend = 'normal'
+          seasonal.trend = diff > 5 ? 'warmer' : diff < -5 ? 'cooler' : 'normal'
         }
       }
     } catch (e) {
