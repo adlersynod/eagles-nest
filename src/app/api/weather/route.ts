@@ -15,14 +15,13 @@ type HistoricalData = {
 }
 
 type SeasonalData = {
-  avgHigh: string | null      // monthly normal high (°F)
-  avgLow: string | null       // monthly normal low (°F)
-  avgPrecipMm: number | null  // monthly normal precip (mm)
-  trend: string | null        // "warmer", "cooler", "normal", "unknown"
-  monthLabel: string          // e.g. "April"
+  avgHigh: string | null
+  avgLow: string | null
+  avgPrecipMm: number | null
+  trend: string | null
+  monthLabel: string
 }
 
-// ── Weather code → icon + description ───────────────────────────────
 function weatherCodeToIconAndDesc(code: number): { icon: string; desc: string } {
   if (code === 0) return { icon: '☀️', desc: 'Clear sky' }
   if (code === 1) return { icon: '🌤️', desc: 'Mainly clear' }
@@ -52,31 +51,9 @@ function getWttrIcon(desc: string): string {
 const MONTH_NAMES = ['January','February','March','April','May','June',
                     'July','August','September','October','November','December']
 
-function cToF(c: number): number { return Math.round((c * 9) / 5 + 32) }
-
-// Fetch monthly climate normals using Open-Meteo Climate API (no date range needed)
-async function fetchMonthlyNormals(lat: number, lng: number, month: number):
-  Promise<{ avgHigh: number | null; avgLow: number | null; avgPrecip: number | null }> {
-  try {
-    // Climate API: daily data for a full month (most recent available year)
-    const res = await fetch(
-      `https://climate-api.open-meteo.com/v1/climate?latitude=${lat}&longitude=${lng}&start_date=2024-${String(month).padStart(2,'0')}-01&end_date=2024-${String(month).padStart(2,'0')}-28&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`
-    )
-    if (!res.ok) return { avgHigh: null, avgLow: null, avgPrecip: null }
-    const data = await res.json()
-    const daily = data?.daily
-    if (!daily?.temperature_2m_max?.length) return { avgHigh: null, avgLow: null, avgPrecip: null }
-    const maxVals = (daily.temperature_2m_max as (number | null)[]).filter((v): v is number => v != null)
-    const minVals = (daily.temperature_2m_min as (number | null)[]).filter((v): v is number => v != null)
-    const precVals = (daily.precipitation_sum as (number | null)[]).map(v => v ?? 0)
-    if (!maxVals.length) return { avgHigh: null, avgLow: null, avgPrecip: null }
-    const avgHigh = maxVals.reduce((s, v) => s + v, 0) / maxVals.length
-    const avgLow = minVals.reduce((s, v) => s + v, 0) / minVals.length
-    const avgPrecip = precVals.reduce((s, v) => s + v, 0)
-    return { avgHigh, avgLow, avgPrecip }
-  } catch {
-    return { avgHigh: null, avgLow: null, avgPrecip: null }
-  }
+function parseTemp(tempStr: string): number {
+  const m = String(tempStr).match(/^([\d\-]+)/)
+  return m ? parseInt(m[1]) : NaN
 }
 
 export async function GET(request: NextRequest) {
@@ -97,15 +74,14 @@ export async function GET(request: NextRequest) {
   let lng = 0
   let resolvedName = citySanitized
 
-  // ── Step 1: Geocode via Open-Meteo ───────────────────────────────
+  // Step 1: Geocode via Open-Meteo
   try {
     const geoRes = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(citySanitized)}&count=1`,
-      { signal: AbortSignal.timeout(5000) }
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(citySanitized)}&count=1`
     )
     if (geoRes.ok) {
       const geoData = await geoRes.json()
-      if (geoData.results && geoData.results.length > 0) {
+      if (geoData.results?.length > 0) {
         lat = geoData.results[0].latitude
         lng = geoData.results[0].longitude
         resolvedName = `${geoData.results[0].name}, ${geoData.results[0].country}`
@@ -115,18 +91,17 @@ export async function GET(request: NextRequest) {
     console.error('Geocode error:', e)
   }
 
-  // ── Step 2: Fetch Open-Meteo forecast ────────────────────────────
+  // Step 2: Fetch Open-Meteo forecast (Fahrenheit)
   let forecast: WeatherDay[] = []
   if (lat !== 0 && lng !== 0) {
     try {
-      const forecastRes = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weather_code,temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&forecast_days=16`,
-        { signal: AbortSignal.timeout(8000) }
+      const fcRes = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weather_code,temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&forecast_days=16`
       )
-      if (forecastRes.ok) {
-        const fcData = await forecastRes.json()
+      if (fcRes.ok) {
+        const fcData = await fcRes.json()
         const daily = fcData?.daily
-        if (daily && Array.isArray(daily.time) && daily.time.length > 0) {
+        if (daily?.time?.length) {
           forecast = daily.time.map((date: string, i: number) => {
             const code = daily.weather_code?.[i] ?? 0
             const { icon, desc } = weatherCodeToIconAndDesc(code)
@@ -141,16 +116,15 @@ export async function GET(request: NextRequest) {
         }
       }
     } catch (e) {
-      console.error('Open-Meteo forecast error:', e)
+      console.error('Forecast error:', e)
     }
   }
 
-  // ── Step 3: Fall back to wttr.in if Open-Meteo forecast failed ─
+  // Step 3: Fall back to wttr.in if forecast still empty
   if (!forecast.length) {
     try {
       const wttrRes = await fetch(
-        `https://wttr.in/${encodeURIComponent(citySanitized)}?format=j1`,
-        { signal: AbortSignal.timeout(5000) }
+        `https://wttr.in/${encodeURIComponent(citySanitized)}?format=j1`
       )
       if (wttrRes.ok) {
         const wttrData = await wttrRes.json()
@@ -180,99 +154,89 @@ export async function GET(request: NextRequest) {
   const targetDate = dateParam || new Date().toISOString().slice(0, 10)
   const monthName = MONTH_NAMES[parseInt(targetDate.slice(5, 7)) - 1]
 
-  // ── Step 4: Historical averages for exact date ──────────────────
+  // Step 4: Historical averages for exact date (last year)
   let historical: HistoricalData = { avgHigh: null, avgLow: null, avgPrecipMm: null }
   if (dateParam && lat !== 0 && lng !== 0) {
     try {
       const lastYear = String(parseInt(dateParam.slice(0, 4)) - 1) + dateParam.slice(4)
-      const archiveRes = await fetch(
-        `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${lastYear}&end_date=${lastYear}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`,
-        { signal: AbortSignal.timeout(8000) }
+      const arRes = await fetch(
+        `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${lastYear}&end_date=${lastYear}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`
       )
-      if (archiveRes.ok) {
-        const archiveData = await archiveRes.json()
-        const daily = archiveData?.daily
-        if (daily && Array.isArray(daily.temperature_2m_max) && daily.temperature_2m_max.length > 0) {
+      if (arRes.ok) {
+        const arData = await arRes.json()
+        const daily = arData?.daily
+        if (daily?.temperature_2m_max?.length) {
           historical = {
-            avgHigh: `${cToF(daily.temperature_2m_max[0])}°F`,
-            avgLow: `${cToF(daily.temperature_2m_min[0])}°F`,
+            avgHigh: `${Math.round((daily.temperature_2m_max[0] * 9) / 5 + 32)}°F`,
+            avgLow: `${Math.round((daily.temperature_2m_min[0] * 9) / 5 + 32)}°F`,
             avgPrecipMm: daily.precipitation_sum?.[0] != null ? parseFloat(daily.precipitation_sum[0].toFixed(1)) : null,
           }
         }
       }
     } catch (e) {
-      console.error('Historical archive error:', e)
+      console.error('Historical error:', e)
     }
   }
 
-  // ── Step 5: Monthly seasonal normals (3-year average) ────────────
-  let seasonal: SeasonalData = {
-    avgHigh: null, avgLow: null, avgPrecipMm: null, trend: null, monthLabel: monthName
-  }
+  // Step 5: Monthly seasonal normals (climate API, most recent available year)
+  let seasonal: SeasonalData = { avgHigh: null, avgLow: null, avgPrecipMm: null, trend: null, monthLabel: monthName }
   if (lat !== 0 && lng !== 0) {
     try {
-      const normals = await fetchMonthlyNormals(lat, lng, parseInt(targetDate.slice(5, 7)))
-      const avgHighC = normals.avgHigh
-      const avgLowC = normals.avgLow
-      if (avgHighC != null) {
-        const normalHighF = Math.round(avgHighC * 9 / 5 + 32)
-        const normalLowF = Math.round((avgLowC ?? avgHighC) * 9 / 5 + 32)
-        seasonal.avgHigh = `${normalHighF}°F`
-        seasonal.avgLow = `${normalLowF}°F`
-        seasonal.avgPrecipMm = normals.avgPrecip != null ? parseFloat(normals.avgPrecip.toFixed(1)) : null
-
-        // Compute trend: compare forecast (°F) to seasonal normal (°F)
-        const forecastMatch = forecast[0]?.maxTemp?.match(/^([\d\-]+)/)
-        const forecastHigh = forecastMatch ? parseInt(forecastMatch[1]) : NaN
-        if (!isNaN(forecastHigh)) {
-          const diff = forecastHigh - normalHighF
-          seasonal.trend = diff > 5 ? 'warmer' : diff < -5 ? 'cooler' : 'normal'
+      const mm = targetDate.slice(5, 7)
+      const clRes = await fetch(
+        `https://climate-api.open-meteo.com/v1/climate?latitude=${lat}&longitude=${lng}&start_date=2024-${mm}-01&end_date=2024-${mm}-28&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`
+      )
+      if (clRes.ok) {
+        const clData = await clRes.json()
+        const daily = clData?.daily
+        const maxVals = (daily?.temperature_2m_max as (number | null)[] | undefined)?.filter((v): v is number => v != null) ?? []
+        const minVals = (daily?.temperature_2m_min as (number | null)[] | undefined)?.filter((v): v is number => v != null) ?? []
+        const precVals = (daily?.precipitation_sum as (number | null)[] | undefined)?.map(v => v ?? 0) ?? []
+        if (maxVals.length) {
+          const avgHighC = maxVals.reduce((s, v) => s + v, 0) / maxVals.length
+          const avgLowC = minVals.reduce((s, v) => s + v, 0) / minVals.length
+          const avgPrecip = precVals.reduce((s, v) => s + v, 0)
+          seasonal.avgHigh = `${Math.round(avgHighC * 9 / 5 + 32)}°F`
+          seasonal.avgLow = `${Math.round(avgLowC * 9 / 5 + 32)}°F`
+          seasonal.avgPrecipMm = parseFloat(avgPrecip.toFixed(1))
         }
       }
     } catch (e) {
-      console.error('Seasonal normals error:', e)
+      console.error('Seasonal error:', e)
     }
   }
 
-  // ── Step 6: Travel risk ─────────────────────────────────────────
+  // Step 6: Slice forecast to 3 days starting from target date
+  const today = new Date().toISOString().slice(0, 10)
+  const targetIdx = forecast.findIndex((d) => d.date === targetDate)
+  let beyondForecast = false
+  let startIdx = 0
+  if (targetIdx >= 0) {
+    startIdx = targetIdx
+  } else if (targetDate < today) {
+    startIdx = Math.max(0, forecast.length - 3)
+  } else {
+    beyondForecast = true
+    startIdx = Math.max(0, forecast.length - 3)
+  }
+  const forecastSlice = forecast.slice(startIdx, startIdx + 3)
+
+  // Step 7: Compute trend — compare forecast to seasonal normal
+  // (done inline with the forecastSlice to avoid any stale closure issues)
+  const fcHighF = parseTemp(forecastSlice[0]?.maxTemp ?? '')
+  const normHighF = parseTemp(seasonal.avgHigh ?? '')
+  if (!isNaN(fcHighF) && !isNaN(normHighF)) {
+    const diff = fcHighF - normHighF
+    seasonal.trend = diff > 5 ? 'warmer' : diff < -5 ? 'cooler' : 'normal'
+  }
+
+  // Step 8: Travel risk
   let travelRisk: 'low' | 'moderate' | 'high' = 'low'
   const precipMm = historical.avgPrecipMm ?? seasonal.avgPrecipMm
   if (precipMm != null) {
     if (precipMm > 10) travelRisk = 'high'
     else if (precipMm > 5) travelRisk = 'moderate'
   }
-
-  // ── Step 7: Slice forecast to 3 days starting from target date ──
-  const today = new Date().toISOString().slice(0, 10)
-  const targetIdx = forecast.findIndex((d) => d.date === targetDate)
-  let beyondForecast = false
-  let startIdx: number
-  if (targetIdx >= 0) {
-    startIdx = targetIdx
-  } else if (targetDate < today) {
-    // Requested date is in the past — show most recent available
-    startIdx = Math.max(0, forecast.length - 3)
-  } else {
-    // Requested date is beyond forecast range — show last 3 available + flag
-    beyondForecast = true
-    startIdx = Math.max(0, forecast.length - 3)
-  }
-  const forecastSlice = forecast.slice(startIdx, startIdx + 3)
-
-  // Debug: inline trend computation at return time
-  const dbg = { forecastMaxF: 0, normalHighF: 0, diff: 0 }
-  try {
-    const fcMatch = (forecastSlice[0]?.maxTemp ?? '').match(/^([\d\-]+)/)
-    dbg.forecastMaxF = fcMatch ? parseInt(fcMatch[1]) : 0
-    const clRes = await fetch(`https://climate-api.open-meteo.com/v1/climate?latitude=${lat}&longitude=${lng}&start_date=2024-${targetDate.slice(5,7)}-01&end_date=2024-${targetDate.slice(5,7)}-28&daily=temperature_2m_max&timezone=auto`)
-    if (clRes.ok) {
-      const clData = await clRes.json()
-      const vals = clData?.daily?.temperature_2m_max ?? []
-      const avgC = vals.length ? vals.reduce((s: number, v: number) => s + v, 0) / vals.length : 0
-      dbg.normalHighF = Math.round(avgC * 9 / 5 + 32)
-      dbg.diff = dbg.forecastMaxF - dbg.normalHighF
-    }
-  } catch {}
 
   return NextResponse.json({
     location: resolvedName,
@@ -282,6 +246,5 @@ export async function GET(request: NextRequest) {
     seasonal,
     travelRisk,
     beyondForecast,
-    _debug: dbg,
   })
 }
