@@ -6,7 +6,7 @@ import ExternalLink from '../components/ExternalLink'
 import WalkRadiusSheet from '../components/WalkRadiusSheet'
 
 // ── Types ────────────────────────────────────────────────────────────
-type TabId = 'attractions' | 'restaurants' | 'parks' | 'weather'
+type TabId = 'attractions' | 'restaurants' | 'parks' | 'weather' | 'plans'
 
 type PlaceResult = {
   id: string
@@ -64,6 +64,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'restaurants', label: '🍽️ Food & Dining' },
   { id: 'parks', label: '🏕️ RV Parks' },
   { id: 'weather', label: '🌤️ Weather' },
+  { id: 'plans', label: '📋 Plans' },
 ]
 
 type PriceObj = { amount_min: number; amount_max: number; per_unit: string }
@@ -381,6 +382,7 @@ const EMPTY_MESSAGES: Record<TabId, { emoji: string; text: string }> = {
   restaurants: { emoji: '🍽️', text: 'No restaurants found. Try expanding your search.' },
   parks: { emoji: '🌲', text: 'No parks found. Try a nearby city.' },
   weather: { emoji: '🌤️', text: 'Weather data unavailable for this location.' },
+  plans: { emoji: '📋', text: 'Generate a plan above.' },
 }
 
 function ResultGrid({ places, loading, children, tabId, onWalkFromHere, badge }: {
@@ -671,6 +673,174 @@ function WeatherDisplay({ city }: { city: string }) {
   )
 }
 
+// ── Plans Panel ─────────────────────────────────────────────────────
+type PlanStop = {
+  time: string
+  type: 'coffee' | 'activity' | 'meal' | 'evening'
+  placeName: string
+  address: string
+  walkFromPrevious: string
+  notes: string
+  rating: number | null
+  mapsUrl: string
+}
+
+const DAY_TYPES = [
+  { value: 'weeknight', label: '🌙 Weeknight' },
+  { value: 'weekend-morning', label: '🌅 Weekend Morning' },
+  { value: 'weekend-afternoon', label: '☀️ Weekend Afternoon' },
+  { value: 'weekend-night', label: '🌃 Weekend Night' },
+  { value: 'multi-day', label: '🗓️ Multi-Day' },
+] as const
+
+const STOP_ICONS: Record<string, string> = {
+  coffee: '☕', activity: '🥾', meal: '🍽️', evening: '🌙',
+}
+
+const STOP_LABELS: Record<string, string> = {
+  coffee: 'Coffee Stop', activity: 'Activity', meal: 'Meal', evening: 'Evening',
+}
+
+const LOADING_MESSAGES = [
+  'Finding local coffee spots…',
+  'Checking nearby trails…',
+  'Scouting dinner options…',
+  'Mapping out the evening…',
+  'Putting together your itinerary…',
+]
+
+function PlansPanel({ city, rangeStart, rangeEnd, attractions, restaurants }: {
+  city: string
+  rangeStart: string
+  rangeEnd: string
+  attractions: PlaceResult[]
+  restaurants: PlaceResult[]
+}) {
+  const [dayType, setDayType] = useState<string>('weekend-afternoon')
+  const [stops, setStops] = useState<PlanStop[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [loadingMsg, setLoadingMsg] = useState('')
+  const [planCity, setPlanCity] = useState('')
+
+  const generate = async () => {
+    if (!city.trim()) return
+    setLoading(true)
+    setError(null)
+    setStops(null)
+    setPlanCity(city.trim())
+
+    // Cycle through loading messages
+    let msgIdx = 0
+    const msgInterval = setInterval(() => {
+      setLoadingMsg(LOADING_MESSAGES[msgIdx % LOADING_MESSAGES.length])
+      msgIdx++
+    }, 1200)
+
+    const contextPlaces = [...attractions, ...restaurants].slice(0, 30)
+
+    try {
+      const res = await fetch('/api/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          city: city.trim(),
+          dayType,
+          startDate: rangeStart,
+          endDate: rangeEnd,
+          contextPlaces,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to generate plan')
+      setStops(json.stops || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.')
+    } finally {
+      clearInterval(msgInterval)
+      setLoading(false)
+      setLoadingMsg('')
+    }
+  }
+
+  if (!city) {
+    return (
+      <p className="state-msg">
+        <span className="emoji">📋</span>
+        Search a city above to generate a trip plan.
+      </p>
+    )
+  }
+
+  return (
+    <div className="plans-panel">
+      <div className="plans-controls">
+        <div className="day-type-selector">
+          {DAY_TYPES.map(dt => (
+            <button
+              key={dt.value}
+              className={`day-type-btn ${dayType === dt.value ? 'active' : ''}`}
+              onClick={() => setDayType(dt.value)}
+            >
+              {dt.label}
+            </button>
+          ))}
+        </div>
+        <button
+          className="generate-btn"
+          onClick={generate}
+          disabled={loading || !city.trim()}
+        >
+          {loading ? `⏳ ${loadingMsg}` : '✨ Generate My Plan'}
+        </button>
+      </div>
+
+      {error && <div className="error-msg">{error}</div>}
+
+      {stops && stops.length > 0 && (
+        <div className="plan-timeline">
+          <div className="plan-header">
+            <h3>📍 {planCity} — {DAY_TYPES.find(d => d.value === dayType)?.label.replace(/^[🌙🌅☀️🌃🗓️]\s/, '') || dayType}</h3>
+            <button className="regen-btn" onClick={generate} title="Regenerate">↻</button>
+          </div>
+          {stops.map((stop, i) => (
+            <div key={i} className="plan-stop">
+              <div className="stop-time-col">
+                <span className="stop-icon">{STOP_ICONS[stop.type] || '📍'}</span>
+                <span className="stop-time">{stop.time}</span>
+              </div>
+              <div className="stop-connector">
+                <div className="stop-dot" />
+                {i < stops.length - 1 && <div className="stop-line" />}
+              </div>
+              <div className="stop-content">
+                <div className="stop-type-label">{STOP_LABELS[stop.type] || stop.type}</div>
+                <div className="stop-place">{stop.placeName}</div>
+                <div className="stop-address">{stop.address}</div>
+                {stop.rating && <div className="stop-rating">★ {stop.rating.toFixed(1)}</div>}
+                {stop.notes && <div className="stop-notes">{stop.notes}</div>}
+                <div className="stop-actions">
+                  <span className="walk-badge">🚶 {stop.walkFromPrevious}</span>
+                  <a href={stop.mapsUrl} target="_blank" rel="noopener noreferrer" className="directions-link">
+                    📍 Directions
+                  </a>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && !stops && !error && (
+        <p className="state-msg">
+          <span className="emoji">✨</span>
+          Select a day type above and tap Generate to create your itinerary.
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Main Page ────────────────────────────────────────────────────────
 export default function Home() {
   const [city, setCity] = useState('')
@@ -820,7 +990,15 @@ export default function Home() {
         </div>
       )}
 
-      {activeTab === 'weather' ? (
+      {activeTab === 'plans' ? (
+        <PlansPanel
+          city={city}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          attractions={data.attractions}
+          restaurants={data.restaurants}
+        />
+      ) : activeTab === 'weather' ? (
         <WeatherDisplay city={city} />
       ) : activeTab === 'parks' ? (
         <>
