@@ -15,6 +15,7 @@ type PlaceResult = {
   primaryType: string
   photoUrl: string | null
   mapUrl: string
+  address: string
 }
 
 type WeatherDay = {
@@ -239,20 +240,23 @@ function PlaceCard({ place }: { place: PlaceResult }) {
         <a href={place.mapUrl} target="_blank" rel="noopener noreferrer" className="card-name-link">
           <h3 className="card-name">{place.name}</h3>
         </a>
+        {place.address && <p className="card-address">{place.address}</p>}
 
         <div className="card-meta">
           <StarRating rating={place.rating} />
           <PriceLevel level={place.priceLevel} />
         </div>
 
-        <a
-          href={place.mapUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="card-directions-btn"
-        >
-          📍 View on Maps
-        </a>
+        <div className="card-actions">
+          <a
+            href={place.mapUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="card-directions-btn"
+          >
+            📍 View on Maps
+          </a>
+        </div>
       </div>
     </div>
   )

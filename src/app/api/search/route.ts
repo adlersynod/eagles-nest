@@ -4,55 +4,18 @@ type PlaceResult = {
   id: string
   name: string
   rating: number | null
-  reviewCount: number | null
   priceLevel: number | null
   types: string[]
   primaryType: string
   photoUrl: string | null
   mapUrl: string
+  address: string
 }
 
 const TYPE_QUERIES: Record<string, string> = {
   attractions: 'tourist attractions',
   restaurants: 'restaurants',
-  parks: 'RV parks campgrounds camping',
-}
-
-async function getPhotoUrl(placeName: string, apiKey: string): Promise<string | null> {
-  try {
-    const searchRes = await fetch(
-      `https://places.googleapis.com/v1/places:searchText`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'places.photos',
-        },
-        body: JSON.stringify({
-          textQuery: placeName,
-          languageCode: 'en',
-          maxResultCount: 1,
-        }),
-      }
-    )
-    const searchData = await searchRes.json()
-    const photoName = searchData?.places?.[0]?.photos?.[0]?.name
-    if (!photoName) return null
-
-    // Fetch the photo — returns redirect to the actual image
-    const photoRes = await fetch(
-      `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=400`,
-      {
-        headers: { 'X-Goog-Api-Key': apiKey },
-        redirect: 'follow',
-      }
-    )
-    // Follow the redirect to get the actual image URL
-    return photoRes.url || null
-  } catch {
-    return null
-  }
+  parks: 'RV parks campgrounds',
 }
 
 export async function GET(request: NextRequest) {
@@ -97,7 +60,7 @@ export async function GET(request: NextRequest) {
 
     if (!searchRes.ok) {
       const err = await searchRes.json().catch(() => ({}))
-      console.error('Google Places error:', err)
+      console.error('Google Places search error:', err)
       return NextResponse.json({ error: 'Search service unavailable.' }, { status: 502 })
     }
 
@@ -108,8 +71,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ results: [], city })
     }
 
-    // Fetch details + photo for each place
     const results: PlaceResult[] = []
+
+    // Fetch details for each place (to get photos + address)
     for (const place of places) {
       if (results.length >= 8) break
 
@@ -119,10 +83,11 @@ export async function GET(request: NextRequest) {
       const priceLevel = place.priceLevel ?? null
       const types: string[] = place.types || []
       const primaryType: string = place.primaryType || types[0] || ''
+      const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayName)}`
 
-      // Get details for address + map URL
-      let mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayName)}`
+      let photoUrl: string | null = null
       let address = ''
+      let gmapsUrl = ''
 
       try {
         const detailsRes = await fetch(
@@ -137,52 +102,28 @@ export async function GET(request: NextRequest) {
         if (detailsRes.ok) {
           const details = await detailsRes.json()
           address = details.formattedAddress || ''
-          mapUrl = details.googleMapsUri || mapUrl
+          gmapsUrl = details.googleMapsUri || ''
 
-          // Get photo URL from first photo reference
+          // Build photo URL directly from photo resource name
           const photoName = details.photos?.[0]?.name
           if (photoName) {
-            try {
-              const photoRes = await fetch(
-                `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=400`,
-                {
-                  headers: { 'X-Goog-Api-Key': apiKey },
-                  redirect: 'follow',
-                }
-              )
-              if (photoRes.ok && photoRes.url) {
-                results.push({
-                  id: placeId,
-                  name: displayName,
-                  rating,
-                  reviewCount: null,
-                  priceLevel,
-                  types,
-                  primaryType,
-                  photoUrl: photoRes.url,
-                  mapUrl,
-                })
-                continue
-              }
-            } catch {
-              // Fall through to no-photo result
-            }
+            photoUrl = `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=400&key=${apiKey}`
           }
         }
       } catch {
-        // Details fetch failed — continue with basic info
+        // Continue without photo
       }
 
       results.push({
         id: placeId,
         name: displayName,
         rating,
-        reviewCount: null,
         priceLevel,
         types,
         primaryType,
-        photoUrl: null,
-        mapUrl,
+        photoUrl,
+        mapUrl: gmapsUrl || mapUrl,
+        address,
       })
     }
 
