@@ -260,6 +260,14 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
             <span className="book-early-badge">📅 Book Early</span>
           )}
         </div>
+        {camp.amenities?.length > 0 && (
+          <div className="amenity-row">
+            {camp.amenities.slice(0, 6).map((a) => {
+              const icon = a.includes('wifi') ? '📶' : a.includes('pet') ? '🐾' : a.includes('water') ? '💧' : a.includes('electr') ? '⚡' : a.includes('dump') ? '🚰' : a.includes('laundry') ? '🧺' : a.includes('playground') ? '🎢' : a.includes('campfire') || a.includes('fire') ? '🔥' : '•'
+              return <span key={a} className="amenity-chip" title={a}>{icon}</span>
+            })}
+          </div>
+        )}
         {rangeLabel && <p className="date-range-badge">📅 {rangeLabel}</p>}
         {camp.vacancyNote && (
           <p className={`vacancy-note ${camp.vacancyNote.toLowerCase().includes('check for cancellation') ? 'vacancy-urgent' : camp.vacancyNote.toLowerCase().includes('only') || camp.vacancyNote.toLowerCase().includes('left') ? 'vacancy-warn' : ''}`}>
@@ -533,11 +541,13 @@ export default function Home() {
   })
   const [savedCities, setSavedCities] = useState<string[]>([])
 
-  // Load saved cities from localStorage on mount
+  // Load saved cities and last city from localStorage on mount
   useEffect(() => {
     try {
       const stored = localStorage.getItem('en_saved_cities')
       if (stored) setSavedCities(JSON.parse(stored))
+      const lastCity = localStorage.getItem('en_last_city')
+      if (lastCity) setCity(lastCity)
     } catch {}
   }, [])
 
@@ -546,6 +556,7 @@ export default function Home() {
       const next = [c, ...savedCities.filter(s => s !== c)].slice(0, 5)
       setSavedCities(next)
       localStorage.setItem('en_saved_cities', JSON.stringify(next))
+      localStorage.setItem('en_last_city', c)
     } catch {}
   }
 
