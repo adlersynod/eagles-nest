@@ -56,36 +56,29 @@ function cToF(c: number): number { return Math.round((c * 9) / 5 + 32) }
 
 async function fetchMonthlyNormals(lat: number, lng: number, yearMonth: string):
   Promise<{ avgHigh: number | null; avgLow: number | null; avgPrecip: number | null }> {
-  // Fetch last 3 years of this month for a reliable seasonal average
+  // Fetch last year of this month for seasonal normals (fast — single call)
   const year = parseInt(yearMonth.slice(0, 4))
-  const results = { highs: [] as number[], lows: [] as number[], precips: [] as number[] }
+  const lastYear = year - 1
+  const start = `${lastYear}-${yearMonth.slice(5)}`
+  const daysInMonth = new Date(lastYear, parseInt(yearMonth.slice(5)), 0).getDate()
+  const end = `${lastYear}-${yearMonth.slice(5)}-${String(daysInMonth).padStart(2,'0')}`
 
-  for (let y = year - 1; y >= year - 3; y--) {
-    try {
-      const start = `${y}-${yearMonth.slice(5)}`
-      const daysInMonth = new Date(y, parseInt(yearMonth.slice(5)), 0).getDate()
-      const end = `${y}-${yearMonth.slice(5)}-${String(daysInMonth).padStart(2,'0')}`
-      const res = await fetch(
-        `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`,
-        { signal: AbortSignal.timeout(8000) }
-      )
-      if (!res.ok) continue
-      const data = await res.json()
-      const daily = data?.daily
-      if (!daily?.temperature_2m_max?.length) continue
-      const monthlyAvgHigh = daily.temperature_2m_max.reduce((s: number, v: number) => s + v, 0) / daily.temperature_2m_max.length
-      const monthlyAvgLow = daily.temperature_2m_min.reduce((s: number, v: number) => s + v, 0) / daily.temperature_2m_min.length
-      const monthlyPrecip = daily.precipitation_sum.reduce((s: number, v: number) => s + (v || 0), 0)
-      results.highs.push(monthlyAvgHigh)
-      results.lows.push(monthlyAvgLow)
-      results.precips.push(monthlyPrecip)
-    } catch { /* skip failed year */ }
+  try {
+    const res = await fetch(
+      `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`,
+      { signal: AbortSignal.timeout(6000) }
+    )
+    if (!res.ok) return { avgHigh: null, avgLow: null, avgPrecip: null }
+    const data = await res.json()
+    const daily = data?.daily
+    if (!daily?.temperature_2m_max?.length) return { avgHigh: null, avgLow: null, avgPrecip: null }
+    const avgHigh = daily.temperature_2m_max.reduce((s: number, v: number) => s + v, 0) / daily.temperature_2m_max.length
+    const avgLow = daily.temperature_2m_min.reduce((s: number, v: number) => s + v, 0) / daily.temperature_2m_min.length
+    const avgPrecip = daily.precipitation_sum.reduce((s: number, v: number) => s + (v || 0), 0)
+    return { avgHigh, avgLow, avgPrecip }
+  } catch {
+    return { avgHigh: null, avgLow: null, avgPrecip: null }
   }
-
-  const avgHigh = results.highs.length ? results.highs.reduce((s, v) => s + v, 0) / results.highs.length : null
-  const avgLow = results.lows.length ? results.lows.reduce((s, v) => s + v, 0) / results.lows.length : null
-  const avgPrecip = results.precips.length ? results.precips.reduce((s, v) => s + v, 0) / results.precips.length : null
-  return { avgHigh, avgLow, avgPrecip }
 }
 
 export async function GET(request: NextRequest) {
@@ -250,8 +243,20 @@ export async function GET(request: NextRequest) {
   }
 
   // ── Step 7: Slice forecast to 3 days starting from target date ──
+  const today = new Date().toISOString().slice(0, 10)
   const targetIdx = forecast.findIndex((d) => d.date === targetDate)
-  const startIdx = targetIdx >= 0 ? targetIdx : 0
+  let beyondForecast = false
+  let startIdx: number
+  if (targetIdx >= 0) {
+    startIdx = targetIdx
+  } else if (targetDate < today) {
+    // Requested date is in the past — show most recent available
+    startIdx = Math.max(0, forecast.length - 3)
+  } else {
+    // Requested date is beyond forecast range — show last 3 available + flag
+    beyondForecast = true
+    startIdx = Math.max(0, forecast.length - 3)
+  }
   const forecastSlice = forecast.slice(startIdx, startIdx + 3)
 
   return NextResponse.json({
@@ -261,5 +266,6 @@ export async function GET(request: NextRequest) {
     historical,
     seasonal,
     travelRisk,
+    beyondForecast,
   })
 }
