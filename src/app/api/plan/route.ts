@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const MINIMAX_BASE = 'https://api.minimax.chat/v1/chat/completions'
-// MiniMax Text-01 is their latest high-intelligence model; abab6.5s-chat is the fast fallback
-const MODEL = 'MiniMax-Text-01'
+const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions'
+const MODEL = 'minimax/MiniMax-M2.7'
 const MAX_TOKENS = 1200
 
 export async function POST(req: NextRequest) {
@@ -13,9 +12,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'city and dayType are required.' }, { status: 400 })
     }
 
-    const apiKey = process.env.MINIMAX_API_KEY
+    const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) {
-      return NextResponse.json({ error: 'AI service not configured. MINIMAX_API_KEY env var missing.' }, { status: 500 })
+      return NextResponse.json({ error: 'AI service not configured. Add OPENAI_API_KEY to Vercel env vars.' }, { status: 500 })
     }
 
     const dayTypeLabels: Record<string, string> = {
@@ -49,11 +48,13 @@ Available places:
 ${contextPlacesText}
 Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exactly 5 stops. Return JSON only.`
 
-    const response = await fetch(MINIMAX_BASE, {
+    const response = await fetch(OPENROUTER_BASE, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://eagles-nest-rho.vercel.app',
+        'X-Title': 'Eagles Nest Travel Companion',
       },
       body: JSON.stringify({
         model: MODEL,
@@ -68,7 +69,7 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
 
     if (!response.ok) {
       const errText = await response.text()
-      console.error('MiniMax error:', response.status, errText)
+      console.error('OpenRouter error:', response.status, errText)
       if (response.status === 429) {
         return NextResponse.json({ error: 'AI rate limit reached. Please wait a moment and try again.' }, { status: 429 })
       }
@@ -76,7 +77,17 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
     }
 
     const data = await response.json()
-    const content = data?.choices?.[0]?.message?.content?.trim()
+    const rawContent = data?.choices?.[0]?.message
+
+    // MiniMax-M2.7 returns structured content (reasoning + content)
+    let content: string | null = null
+    if (typeof rawContent === 'string') {
+      content = rawContent
+    } else if (rawContent && typeof rawContent === 'object') {
+      // structured output from MiniMax models — might be in reasoning field or content field
+      const msg = rawContent as { content?: string; reasoning?: string; refusal?: string }
+      content = (msg.content || msg.reasoning || null) as string | null
+    }
 
     if (!content) {
       return NextResponse.json({ error: 'No plan generated. Please try again.' }, { status: 500 })
