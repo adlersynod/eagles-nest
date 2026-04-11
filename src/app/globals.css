@@ -655,6 +655,11 @@ body {
   margin-bottom: 0.3rem;
 }
 
+.seasonal-temp {
+  color: #c4b5fd;
+  font-weight: 600;
+}
+
 /* ── Travel Risk Badge ───────────────────────────── */
 .travel-risk-badge {
   display: inline-flex;

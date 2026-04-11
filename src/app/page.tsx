@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import DatePicker, { DateRangePicker } from './components/DatePicker'
+import ExternalLink from '../components/ExternalLink'
 
 // ── Types ────────────────────────────────────────────────────────────
 type TabId = 'attractions' | 'restaurants' | 'parks' | 'weather'
@@ -238,7 +239,7 @@ function PlaceCard({ place }: { place: PlaceResult }) {
 
   return (
     <div className="place-card">
-      <a href={place.mapUrl} target="_blank" rel="noopener noreferrer" className="card-photo-link">
+      <ExternalLink href={place.mapUrl} className="card-photo-link">
         <div className="card-photo">
           {place.photoUrl && !imgError ? (
             <img src={place.photoUrl} alt={place.name} onError={() => setImgError(true)} loading="lazy" />
@@ -249,20 +250,20 @@ function PlaceCard({ place }: { place: PlaceResult }) {
             <span className="category-badge">{category}</span>
           </div>
         </div>
-      </a>
+      </ExternalLink>
       <div className="card-body">
-        <a href={place.mapUrl} target="_blank" rel="noopener noreferrer" className="card-name-link">
+        <ExternalLink href={place.mapUrl} className="card-name-link">
           <h3 className="card-name">{place.name}</h3>
-        </a>
+        </ExternalLink>
         {place.address && <p className="card-address">{place.address}</p>}
         <div className="card-meta">
           <StarRating rating={place.rating} />
           <PriceLevel level={place.priceLevel} />
         </div>
         <div className="card-actions">
-          <a href={place.mapUrl} target="_blank" rel="noopener noreferrer" className="card-directions-btn">
+          <ExternalLink href={place.mapUrl} className="card-directions-btn">
             📍 View on Maps
-          </a>
+          </ExternalLink>
         </div>
       </div>
     </div>
@@ -281,7 +282,7 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
   return (
     <div className="place-card">
       {camp.photoUrl && (
-        <a href={camp.mapUrl || camp.bookingUrl || '#'} target="_blank" rel="noopener noreferrer" className="card-photo-link">
+        <ExternalLink href={camp.mapUrl || camp.bookingUrl || '#'} className="card-photo-link">
           <div className="card-photo">
             {!imgError ? (
               <img src={camp.photoUrl} alt={camp.name} onError={() => setImgError(true)} loading="lazy" />
@@ -295,12 +296,12 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
               </span>
             </div>
           </div>
-        </a>
+        </ExternalLink>
       )}
       <div className="card-body">
-        <a href={camp.mapUrl || camp.bookingUrl || '#'} target="_blank" rel="noopener noreferrer" className="card-name-link">
+        <ExternalLink href={camp.mapUrl || camp.bookingUrl || '#'} className="card-name-link">
           <h3 className="card-name">{camp.name}</h3>
-        </a>
+        </ExternalLink>
         {camp.price && <p className="card-price">{formatPrice(camp.price)}</p>}
         <div className="card-meta">
           {camp.rating && <StarRating rating={camp.rating} />}
@@ -323,13 +324,13 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
           </p>
         )}
         <div className="card-actions card-actions-row">
-          <a href={camp.bookingUrl || camp.mapUrl || '#'} target="_blank" rel="noopener noreferrer" className="card-directions-btn check-avail-btn">
+          <ExternalLink href={camp.bookingUrl || camp.mapUrl || '#'} className="card-directions-btn check-avail-btn">
             {camp.bookingUrl ? '🎟️ Check Availability' : '🗺️ View on Maps'}
-          </a>
+          </ExternalLink>
           {camp.mapUrl && (
-            <a href={camp.mapUrl} target="_blank" rel="noopener noreferrer" className="card-directions-btn">
+            <ExternalLink href={camp.mapUrl} className="card-directions-btn">
               📍 Directions
-            </a>
+            </ExternalLink>
           )}
         </div>
       </div>
@@ -601,12 +602,13 @@ function WeatherDisplay({ city }: { city: string }) {
 
       {loading && (
         <div className="weather-grid">
-          {[1, 2, 3].map((i) => <SkeletonCard key={i} />)}
+          {[1, 2, 3, 4, 5].map((i) => <SkeletonCard key={i} />)}
         </div>
       )}
 
       {error && !loading && <div className="error-msg">{error}</div>}
 
+      {/* Show all nights in the selected range */}
       {weather && !loading && (
         <>
           {weather.historical.avgHigh && !weather.beyondForecast && (
@@ -615,20 +617,30 @@ function WeatherDisplay({ city }: { city: string }) {
             </div>
           )}
           <div className={`weather-grid${weather.beyondForecast ? ' weather-grid-dimmed' : ''}`}>
-            {weather.forecast.map((day, i) => (
-              <div key={i} className={`weather-card${weather.beyondForecast ? ' weather-card-dimmed' : ''}`}>
-                {weather.beyondForecast && <span className="card-avg-label">avg</span>}
-                <p className="weather-day">
-                  {i === 0 ? 'Day 1' : `Day ${i + 1}`} · {formatDate(day.date)}
-                </p>
-                <div className="weather-icon">{day.icon}</div>
-                <div className="weather-temps">
-                  <span className="weather-max">{day.maxTemp}°</span>
-                  <span className="weather-min">/ {day.minTemp}°</span>
+            {Array.from({ length: Math.max(1, nights) }, (_, i) => {
+              const fcDay = weather.forecast[i] ?? null
+              const isAvg = weather.beyondForecast || fcDay === null
+              return (
+                <div key={i} className={`weather-card${isAvg ? ' weather-card-dimmed' : ''}`}>
+                  {isAvg && <span className="card-avg-label">{weather.beyondForecast ? 'avg' : 'est'}</span>}
+                  <p className="weather-day">
+                    Night {i + 1} · {formatDate(new Date(new Date(rangeStart + 'T00:00:00').getTime() + i * 86400000).toISOString().slice(0, 10))}
+                  </p>
+                  <div className="weather-icon">{fcDay?.icon ?? (isAvg ? '📅' : '—')}</div>
+                  <div className="weather-temps">
+                    {fcDay ? (
+                      <>
+                        <span className="weather-max">{fcDay.maxTemp}°</span>
+                        <span className="weather-min">/ {fcDay.minTemp}°</span>
+                      </>
+                    ) : (
+                      <span className="weather-max seasonal-temp">{s?.avgHigh ?? '—'}°</span>
+                    )}
+                  </div>
+                  <p className="weather-desc">{fcDay?.desc ?? (isAvg ? `${s?.monthLabel} avg` : '—')}</p>
                 </div>
-                <p className="weather-desc">{day.desc}</p>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </>
       )}
