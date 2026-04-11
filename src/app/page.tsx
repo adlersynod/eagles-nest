@@ -274,13 +274,14 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: Ca
             {camp.vacancyNote}
           </p>
         )}
-        {camp.bookingUrl && (
-          <div className="card-actions">
-            <a href={camp.bookingUrl} target="_blank" rel="noopener noreferrer" className="card-directions-btn check-avail-btn">
-              Check Availability
-            </a>
-          </div>
-        )}
+        <div className="card-actions card-actions-row">
+          <a href={camp.bookingUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(camp.name)}&zoom=15`} target="_blank" rel="noopener noreferrer" className="card-directions-btn check-avail-btn">
+            {camp.bookingUrl ? 'Check Availability' : 'View on Maps'}
+          </a>
+          <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(camp.name)}&zoom=15`} target="_blank" rel="noopener noreferrer" className="card-directions-btn">
+            📍 Directions
+          </a>
+        </div>
       </div>
     </div>
   )
@@ -533,6 +534,7 @@ export default function Home() {
   const [campgrounds, setCampgrounds] = useState<CampgroundResult[]>([])
   const [campgroundsLoading, setCampgroundsLoading] = useState(false)
   const [isPeakSeason, setIsPeakSeason] = useState(false)
+  const [campgroundsUpdated, setCampgroundsUpdated] = useState<string>('')
   const todayStr = new Date().toISOString().slice(0, 10)
   const [selectedDate, setSelectedDate] = useState(todayStr)
   const [rangeStart, setRangeStart] = useState(todayStr)
@@ -596,6 +598,7 @@ export default function Home() {
         if (cgRes.ok && cgData.results) {
           setCampgrounds(cgData.results)
           setIsPeakSeason(cgData.peakSeason || false)
+          setCampgroundsUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
         }
       } catch {
         // vacancy data optional — don't break search
@@ -645,6 +648,9 @@ export default function Home() {
                 </span>
                 {peakSeason && (
                   <span className="book-early-global">📅 Book Early Recommended</span>
+                )}
+                {campgroundsUpdated && (
+                  <span className="vacancy-timestamp">Recreation.gov · Updated {campgroundsUpdated}</span>
                 )}
               </div>
               <DateRangePicker

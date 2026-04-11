@@ -660,6 +660,13 @@ body {
   font-weight: 600;
 }
 
+.vacancy-timestamp {
+  font-size: 0.68rem;
+  color: rgba(255,255,255,0.25);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 /* ── Saved City Chips ───────────────────────────────────── */
 .saved-cities-row {
   display: flex;
@@ -758,6 +765,16 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.card-actions-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.card-actions-row .card-directions-btn {
+  flex: 1;
+  text-align: center;
 }
 
 /* ── Mobile ────────────────────────────────────── */
