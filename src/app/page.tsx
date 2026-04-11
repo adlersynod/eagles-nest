@@ -156,11 +156,11 @@ function LocationInput({
         placeholder="Enter city or destination (e.g. Portland, OR)"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && !loading && onSearch()}
+        onKeyDown={(e) => (e.key === 'Enter' || (e.metaKey && e.key === 'Enter')) && !loading && onSearch()}
         aria-label="City or destination"
       />
       <button onClick={onSearch} disabled={!value.trim() || loading}>
-        {loading ? 'Searching…' : 'Go'}
+        {loading ? '⏳…' : 'Go'}
       </button>
     </div>
   )
@@ -302,8 +302,15 @@ function SkeletonCard() {
 }
 
 // ── Result Grid ──────────────────────────────────────────────────────
-function ResultGrid({ places, loading, children }: {
-  places: PlaceResult[]; loading: boolean; children?: React.ReactNode
+const EMPTY_MESSAGES: Record<TabId, { emoji: string; text: string }> = {
+  attractions: { emoji: '🎯', text: 'No attractions found. Try a different destination.' },
+  restaurants: { emoji: '🍽️', text: 'No restaurants found. Try expanding your search.' },
+  parks: { emoji: '🌲', text: 'No parks found. Try a nearby city.' },
+  weather: { emoji: '🌤️', text: 'Weather data unavailable for this location.' },
+}
+
+function ResultGrid({ places, loading, children, tabId }: {
+  places: PlaceResult[]; loading: boolean; children?: React.ReactNode; tabId?: TabId
 }) {
   if (loading) {
     return (
@@ -313,10 +320,11 @@ function ResultGrid({ places, loading, children }: {
     )
   }
   if (!places.length && !children) {
+    const msg = tabId ? EMPTY_MESSAGES[tabId] : { emoji: '🔍', text: 'No results found.' }
     return (
       <p className="state-msg">
-        <span className="emoji">🔍</span>
-        No results found. Try a different city or tab.
+        <span className="emoji">{msg.emoji}</span>
+        {msg.text}
       </p>
     )
   }
@@ -674,7 +682,13 @@ export default function Home() {
           />
           {/* Fall back to Google Places parks if no campground data */}
           {(!campgroundsLoading && campgrounds.length === 0) && (
-            <ResultGrid places={data.parks || []} loading={false} />
+            <>
+              <p className="state-msg">
+                <span className="emoji">🌲</span>
+                No Recreation.gov data for this area — showing Google Places RV parks below.
+              </p>
+              <ResultGrid places={data.parks || []} loading={false} tabId="parks" />
+            </>
           )}
           {campgroundsLoading && (
             <div className="card-grid">
@@ -691,7 +705,7 @@ export default function Home() {
               Enter a destination above to get started.
             </p>
           )}
-          <ResultGrid places={data[activeTab] || []} loading={loading && !!city} />
+          <ResultGrid places={data[activeTab] || []} loading={loading && !!city} tabId={activeTab} />
         </>
       )}
 
