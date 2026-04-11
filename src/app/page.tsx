@@ -504,7 +504,10 @@ function ParksWeatherBanner({ city, rangeStart, rangeEnd }: { city: string; rang
 // ── Weather Display ─────────────────────────────────────────────────
 function WeatherDisplay({ city }: { city: string }) {
   const today = new Date().toISOString().slice(0, 10)
-  const [selectedDate, setSelectedDate] = useState<string>(today)
+  const [rangeStart, setRangeStart] = useState<string>(today)
+  const [rangeEnd, setRangeEnd] = useState<string>(() => {
+    const d = new Date(); d.setDate(d.getDate() + 3); return d.toISOString().slice(0, 10)
+  })
   const [weather, setWeather] = useState<{
     location: string; date: string; forecast: WeatherDay[]; travelRisk: string
     historical: { avgHigh: string | null; avgLow: string | null; avgPrecipMm: number | null }
@@ -514,12 +517,12 @@ function WeatherDisplay({ city }: { city: string }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const fetchWeather = async (date: string) => {
+  const fetchWeather = async (startDate: string) => {
     if (!city) return
     setLoading(true)
     setError(null)
     try {
-      const url = `/api/weather?city=${encodeURIComponent(city)}&date=${date}`
+      const url = `/api/weather?city=${encodeURIComponent(city)}&date=${startDate}`
       const res = await fetch(url)
       const data = await res.json()
       if (!res.ok) {
@@ -535,44 +538,63 @@ function WeatherDisplay({ city }: { city: string }) {
   }
 
   useEffect(() => {
-    fetchWeather(selectedDate)
-  }, [city, selectedDate])
-
-  const handleDateChange = (date: string) => {
-    setSelectedDate(date)
-  }
+    fetchWeather(rangeStart)
+  }, [city, rangeStart])
 
   const risk = weather ? TRAVEL_RISK_LABELS[weather.travelRisk as 'low' | 'moderate' | 'high'] : null
   const s = weather?.seasonal
   const trendEmoji = s?.trend === 'warmer' ? '↗' : s?.trend === 'cooler' ? '↘' : '→'
 
+  const nights = rangeStart && rangeEnd
+    ? Math.max(0, Math.round((new Date(rangeEnd + 'T00:00:00').getTime() - new Date(rangeStart + 'T00:00:00').getTime()) / 86400000))
+    : 0
+
   return (
     <div>
       <div className="weather-header">
         <p className="weather-location">{city}</p>
-        <DatePicker
-          value={selectedDate}
-          onChange={handleDateChange}
-          label={selectedDate ? `Forecast for: ${formatDate(selectedDate)}` : 'Plan your trip — select a date'}
+        <DateRangePicker
+          startValue={rangeStart}
+          endValue={rangeEnd}
+          onStartChange={setRangeStart}
+          onEndChange={setRangeEnd}
+          label="Trip dates"
           maxDays={180}
+          maxNights={14}
         />
-        {risk && (
+
+        {/* Prominent seasonal average banner when beyond forecast */}
+        {weather?.beyondForecast && (
+          <div className="weather-seasonal-banner">
+            <span className="seasonal-badge">📅 SEASONAL AVERAGE</span>
+            <span className="seasonal-label">
+              {s?.monthLabel} normals for {city}: <strong>{s?.avgHigh}/{s?.avgLow}</strong>
+              {s?.avgPrecipMm != null && <> · {s.avgPrecipMm}mm avg precipitation</>}
+              {s?.trend && <span className="seasonal-trend"> · {trendEmoji} {s.trend} than normal</span>}
+            </span>
+          </div>
+        )}
+
+        {/* Travel risk and historical */}
+        {risk && !weather?.beyondForecast && (
           <div className={`travel-risk-badge risk-${weather!.travelRisk}`}>
             {risk.badge} {risk.label}
             {weather!.historical.avgPrecipMm != null && (
-              <span className="risk-precip"> &nbsp;· {weather!.historical.avgPrecipMm}mm avg precip last year</span>
+              <span className="risk-precip"> · {weather!.historical.avgPrecipMm}mm avg precip last year</span>
             )}
           </div>
         )}
-        {s?.avgHigh && (
+
+        {s?.avgHigh && !weather?.beyondForecast && (
           <div className="seasonal-note">
             📅 {s.monthLabel} normal: <strong>{s.avgHigh}/{s.avgLow}</strong>
             {s.trend && <> · {trendEmoji} {s.trend} than normal</>}
           </div>
         )}
-        {weather?.beyondForecast && (
-          <div className="beyond-forecast-note">
-            ⏳ Beyond 16-day forecast — showing seasonal averages for {s?.monthLabel}
+
+        {weather?.beyondForecast && weather?.historical?.avgHigh && (
+          <div className="historical-note">
+            📊 Last year on {formatDate(weather.date)}: {weather.historical.avgHigh}/{weather.historical.avgLow}
           </div>
         )}
       </div>
@@ -587,16 +609,17 @@ function WeatherDisplay({ city }: { city: string }) {
 
       {weather && !loading && (
         <>
-          {weather.historical.avgHigh && (
+          {weather.historical.avgHigh && !weather.beyondForecast && (
             <div className="historical-note">
               📊 Last year on {formatDate(weather.date)}: {weather.historical.avgHigh}/{weather.historical.avgLow}
             </div>
           )}
-          <div className="weather-grid">
+          <div className={`weather-grid${weather.beyondForecast ? ' weather-grid-dimmed' : ''}`}>
             {weather.forecast.map((day, i) => (
-              <div key={i} className="weather-card">
+              <div key={i} className={`weather-card${weather.beyondForecast ? ' weather-card-dimmed' : ''}`}>
+                {weather.beyondForecast && <span className="card-avg-label">avg</span>}
                 <p className="weather-day">
-                  {i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : formatDate(day.date)}
+                  {i === 0 ? 'Day 1' : `Day ${i + 1}`} · {formatDate(day.date)}
                 </p>
                 <div className="weather-icon">{day.icon}</div>
                 <div className="weather-temps">
