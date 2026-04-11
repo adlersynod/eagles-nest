@@ -50,14 +50,19 @@ function isChainPlace(name: string): boolean {
 }
 
 function demoteResults(places: Record<string, unknown>[]): Record<string, unknown>[] {
+  // Sort by quality, pushing chains and tourist-heavy spots down — don't remove them
   return places
     .map((place) => {
       const reviewCount = (place.reviews as Array<{ originalRatingCount?: { value?: number } }> | undefined)?.[0]?.originalRatingCount?.value ?? 0
       const displayName = (place.displayName as { text: string } | null)?.text || ''
       const isChain = isChainPlace(displayName)
-      return { place, reviewCount, isChain, isDemoted: reviewCount > 200 || isChain }
+      // Demotion score: chains and >500 reviews get penalized heavily, 200-500 gets light penalty
+      const chainPenalty = isChain ? 300 : 0
+      const reviewPenalty = reviewCount > 500 ? 300 : reviewCount > 200 ? 100 : 0
+      const score = -(chainPenalty + reviewPenalty)
+      return { place, score }
     })
-    .filter(({ isDemoted }) => !isDemoted)
+    .sort((a, b) => a.score - b.score)
     .map(({ place }) => place)
 }
 
