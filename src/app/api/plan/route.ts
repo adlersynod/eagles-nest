@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions'
-const MODEL = 'minimax/MiniMax-M2.7'
+const MINIMAX_BASE = 'https://api.minimax.chat/v1/chat/completions'
+// MiniMax Text-01 is their latest high-intelligence model; abab6.5s-chat is the fast fallback
+const MODEL = 'MiniMax-Text-01'
 const MAX_TOKENS = 1200
 
 export async function POST(req: NextRequest) {
@@ -12,9 +13,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'city and dayType are required.' }, { status: 400 })
     }
 
-    const apiKey = process.env.OPENAI_API_KEY
+    const apiKey = process.env.MINIMAX_API_KEY
     if (!apiKey) {
-      return NextResponse.json({ error: 'AI service not configured.' }, { status: 500 })
+      return NextResponse.json({ error: 'AI service not configured. MINIMAX_API_KEY env var missing.' }, { status: 500 })
     }
 
     const dayTypeLabels: Record<string, string> = {
@@ -48,13 +49,11 @@ Available places:
 ${contextPlacesText}
 Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exactly 5 stops. Return JSON only.`
 
-    const response = await fetch(OPENROUTER_BASE, {
+    const response = await fetch(MINIMAX_BASE, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://eagles-nest-rho.vercel.app',
-        'X-Title': 'Eagles Nest Travel Companion',
       },
       body: JSON.stringify({
         model: MODEL,
@@ -69,7 +68,7 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
 
     if (!response.ok) {
       const errText = await response.text()
-      console.error('OpenRouter error:', response.status, errText)
+      console.error('MiniMax error:', response.status, errText)
       if (response.status === 429) {
         return NextResponse.json({ error: 'AI rate limit reached. Please wait a moment and try again.' }, { status: 429 })
       }
@@ -90,7 +89,6 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
     try {
       plan = JSON.parse(jsonStr)
     } catch {
-      // Try to extract JSON from the response
       const jsonMatch = jsonStr.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         try {
