@@ -3,7 +3,7 @@ import { verifySessionToken } from '@/lib/auth'
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions'
 const MODEL = 'minimax/MiniMax-M2.7'
-const MAX_TOKENS = 1600
+const MAX_TOKENS = 2000
 
 async function getSessionFromRequest(req: NextRequest): Promise<string | null> {
   return req.cookies.get('eagles_nest_session')?.value ?? null
@@ -38,27 +38,17 @@ export async function POST(req: NextRequest) {
     }
 
     const contextPlacesText = contextPlaces && contextPlaces.length > 0
-      ? contextPlaces.map((p: { name: string; address?: string; rating?: number | null; primaryType?: string }) =>
-          `  - ${p.name}${p.rating ? ` ★${p.rating}` : ''} (${p.primaryType || 'place'})${p.address ? ` — ${p.address}` : ''}`
+      ? contextPlaces.map((p: { name: string; primaryType?: string }) =>
+          `  - ${p.name} (${p.primaryType || 'place'})`
         ).join('\n')
       : 'No places loaded — suggest real local spots.'
 
-    const systemPrompt = `You are a local friend giving travel advice. Generate a realistic ${dayTypeLabels[dayType] || dayType} itinerary for ${city}.
-RULES:
-- Times are specific and realistic — 5:30 PM, not 5:00 PM. Morning starts at 8-9 AM, not 6 AM.
-- NEVER suggest chain restaurants or tourist traps (no Olive Garden, Cheesecake Factory, Starbucks, McDonald's, etc.)
-- Prefer places from the provided list. If suggesting something not in the list, it must be a real specific local business.
-- Include exact addresses for every stop.
-- Return ONLY valid JSON in this exact format, no markdown, no explanation:
-{"stops":[{"time":"5:30 PM","type":"coffee|activity|meal|evening","placeName":"string","address":"string","walkFromPrevious":"7 min walk","notes":"string","rating":4.6,"mapsUrl":"https://www.google.com/maps/dir/?api=1&destination=ENCODED_ADDRESS&travelmode=walking"}]}`
+    const systemPrompt = `Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city}. Return EXACTLY 5 stops as JSON: {"stops":[{"time":"","type":"","placeName":"","address":"","walkFromPrevious":"","notes":"","rating":0,"mapsUrl":""}]}. No markdown, no explanation.
+Times: specific (8:30 AM, 12:45 PM). NEVER chains. Prefer the provided places list. Include real addresses.`
 
-    const userPrompt = `City: ${city}
-Day type: ${dayType}
-Dates: ${startDate || 'not set'} → ${endDate || 'not set'}
-Current weather: ${weather || 'not available'}
-Available places:
-${contextPlacesText}
-Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exactly 5 stops. Return JSON only.`
+    const userPrompt = `City: ${city} | Type: ${dayType} | Dates: ${startDate || 'flexible'}–${endDate || 'flexible'}
+Places: ${contextPlacesText}
+Respond with only valid JSON starting with {`
 
     const response = await fetch(OPENROUTER_BASE, {
       method: 'POST',
