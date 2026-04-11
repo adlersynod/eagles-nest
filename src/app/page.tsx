@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 // ── Types ────────────────────────────────────────────────────────────
 type TabId = 'attractions' | 'restaurants' | 'parks' | 'weather'
@@ -309,6 +309,7 @@ function WeatherDisplay({ city }: { city: string }) {
   const [loading, setLoading] = useState(false)
 
   const fetchWeather = async () => {
+    if (!city) return
     setLoading(true)
     setError(null)
     try {
@@ -325,6 +326,10 @@ function WeatherDisplay({ city }: { city: string }) {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    fetchWeather()
+  }, [city])
 
   return (
     <div>
