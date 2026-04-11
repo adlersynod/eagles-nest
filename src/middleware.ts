@@ -1,52 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { verifySessionToken, getSessionToken } from '@/lib/auth'
 
-// Simple in-memory rate limiter — works per-serverless-instance (Vercel isolates each instance)
-const requestCounts = new Map<string, { count: number; resetAt: number }>()
-const WINDOW_MS = 60 * 1000 // 1-minute window
-const MAX_REQUESTS = 30 // max requests per IP per window
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl
 
-function getClientIp(req: NextRequest): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    req.headers.get('x-real-ip') ||
-    'unknown'
-  )
-}
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now()
-  const entry = requestCounts.get(ip)
-
-  if (!entry || now > entry.resetAt) {
-    requestCounts.set(ip, { count: 1, resetAt: now + WINDOW_MS })
-    return false
-  }
-
-  entry.count++
-  if (entry.count > MAX_REQUESTS) {
-    return true
-  }
-  return false
-}
-
-export function middleware(req: NextRequest) {
-  // Only rate-limit API routes
-  if (!req.nextUrl.pathname.startsWith('/api')) {
+  // Public paths — allow without auth
+  if (
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/favicon') ||
+    pathname === '/favicon.ico'
+  ) {
     return NextResponse.next()
   }
 
-  const ip = getClientIp(req)
+  // Check for valid session
+  const token = req.cookies.get('eagles_nest_session')?.value
 
-  if (isRateLimited(ip)) {
-    return NextResponse.json(
-      { error: 'Too many requests. Please slow down.' },
-      { status: 429 }
-    )
+  if (!token) {
+    return NextResponse.redirect(new URL('/login', req.url))
+  }
+
+  const valid = await verifySessionToken(token)
+  if (!valid) {
+    const response = NextResponse.redirect(new URL('/login', req.url))
+    response.cookies.delete('eagles_nest_session')
+    return response
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: '/api/:path*',
+  matcher: [
+    /*
+     * Match all request paths except:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico, sitemap.xml, robots.txt
+     */
+    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)',
+  ],
 }
