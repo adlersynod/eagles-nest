@@ -27,12 +27,17 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const city = searchParams.get('city')
 
-  if (!city) {
-    return NextResponse.json({ error: 'Missing city parameter' }, { status: 400 })
+  if (!city || city.length > 200) {
+    return NextResponse.json({ error: 'Missing or invalid city parameter.' }, { status: 400 })
+  }
+
+  const citySanitized = city.replace(/[^a-zA-Z0-9\s\-\.,']/g, '').trim()
+  if (!citySanitized) {
+    return NextResponse.json({ error: 'Invalid city name.' }, { status: 400 })
   }
 
   try {
-    const url = `https://wttr.in/${encodeURIComponent(city)}?format=j1`
+    const url = `https://wttr.in/${encodeURIComponent(citySanitized)}?format=j1`
     const response = await fetch(url, { next: { revalidate: 3600 } })
 
     if (!response.ok) {
@@ -57,7 +62,7 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json({
-      location: area ? `${area.areaName?.[0]?.value}, ${area.country?.[0]?.value}` : city,
+      location: area ? `${area.areaName?.[0]?.value}, ${area.country?.[0]?.value}` : citySanitized,
       forecast,
     })
   } catch (error) {

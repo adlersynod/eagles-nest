@@ -23,8 +23,13 @@ export async function GET(request: NextRequest) {
   const city = searchParams.get('city')
   const type = searchParams.get('type')
 
-  if (!city) {
-    return NextResponse.json({ error: 'Missing city parameter' }, { status: 400 })
+  if (!city || city.length > 200) {
+    return NextResponse.json({ error: 'Missing or invalid city parameter.' }, { status: 400 })
+  }
+
+  const citySanitized = city.replace(/[^a-zA-Z0-9\s\-\.,'&]/g, '').trim()
+  if (!citySanitized) {
+    return NextResponse.json({ error: 'Invalid city name.' }, { status: 400 })
   }
 
   if (!type || !['attractions', 'restaurants', 'parks'].includes(type)) {
@@ -36,7 +41,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Search service misconfigured.' }, { status: 500 })
   }
 
-  const query = `${city} ${TYPE_QUERIES[type]}`
+  const query = `${citySanitized} ${TYPE_QUERIES[type]}`
 
   try {
     const searchRes = await fetch(
