@@ -222,8 +222,9 @@ export async function GET(request: NextRequest) {
         // Compute trend: compare forecast (°F) to seasonal normal (°F)
         const forecastHigh = parseInt(forecast[0]?.maxTemp)
         if (!isNaN(forecastHigh)) {
-          const normalHighF = cToF(avgHighC)  // normals in Celsius → convert to °F
+          const normalHighF = cToF(avgHighC)
           const diff = forecastHigh - normalHighF
+          console.error(`TREND: forecastHigh=${forecastHigh} normalHighF=${normalHighF} avgHighC=${avgHighC} diff=${diff}`)
           if (diff > 5) seasonal.trend = 'warmer'
           else if (diff < -5) seasonal.trend = 'cooler'
           else seasonal.trend = 'normal'
