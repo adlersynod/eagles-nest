@@ -14,8 +14,8 @@ type WttrResponse = {
   }>
   weather: Array<{
     date: string
-    maxTempC: string
-    minTempC: string
+    maxtempC: string
+    mintempC: string
     hourly: Array<{
       lang_en: Array<{ value: string }>
       weatherDesc: Array<{ value: string }>
@@ -44,13 +44,13 @@ export async function GET(request: NextRequest) {
 
     // Get 3-day forecast
     const forecast: WeatherDay[] = (data.weather || []).slice(0, 3).map((day) => {
-      // Get mid-day description
-      const hourly = day.hourly?.[4] // ~8am
+      // Get mid-day description (~8am index 4)
+      const hourly = day.hourly?.[4]
       const desc = hourly?.weatherDesc?.[0]?.value || ''
       return {
         date: day.date,
-        maxTemp: day.maxTempC || '',
-        minTemp: day.minTempC || '',
+        maxTemp: day.maxtempC || '',
+        minTemp: day.mintempC || '',
         desc,
         icon: getWeatherIcon(desc),
       }
