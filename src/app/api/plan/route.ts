@@ -12,9 +12,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'city and dayType are required.' }, { status: 400 })
     }
 
-    const apiKey = process.env.OPENAI_API_KEY
+    // Route through OpenRouter using MiniMax token plan key (the only working path)
+    const apiKey = process.env.MINIMAX_API_KEY
     if (!apiKey) {
-      return NextResponse.json({ error: 'AI service not configured. Add OPENAI_API_KEY to Vercel env vars.' }, { status: 500 })
+      return NextResponse.json({ error: 'AI service not configured. Add MINIMAX_API_KEY to Vercel env vars.' }, { status: 500 })
     }
 
     const dayTypeLabels: Record<string, string> = {
@@ -69,7 +70,7 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
 
     if (!response.ok) {
       const errText = await response.text()
-      console.error('OpenRouter error:', response.status, errText)
+      console.error('OpenRouter/MiniMax error:', response.status, errText)
       if (response.status === 429) {
         return NextResponse.json({ error: 'AI rate limit reached. Please wait a moment and try again.' }, { status: 429 })
       }
@@ -79,13 +80,12 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
     const data = await response.json()
     const rawContent = data?.choices?.[0]?.message
 
-    // MiniMax-M2.7 returns structured content (reasoning + content)
+    // MiniMax-M2.7 structured output — content may be null, reasoning has the text
     let content: string | null = null
     if (typeof rawContent === 'string') {
       content = rawContent
     } else if (rawContent && typeof rawContent === 'object') {
-      // structured output from MiniMax models — might be in reasoning field or content field
-      const msg = rawContent as { content?: string; reasoning?: string; refusal?: string }
+      const msg = rawContent as { content?: string; reasoning?: string }
       content = (msg.content || msg.reasoning || null) as string | null
     }
 
@@ -93,7 +93,7 @@ Generate a ${dayTypeLabels[dayType] || dayType} itinerary for ${city} with exact
       return NextResponse.json({ error: 'No plan generated. Please try again.' }, { status: 500 })
     }
 
-    // Strip any markdown code fences
+    // Strip markdown code fences
     let jsonStr = content.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()
 
     let plan
