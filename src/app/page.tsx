@@ -911,7 +911,7 @@ export default function Home() {
         </>
       )}
 
-      {walkOrigin && walkOrigin.lat != null && walkOrigin.lng != null && !isNaN(walkOrigin.lat) && !isNaN(walkOrigin.lng) && (
+      {walkOrigin != null && typeof walkOrigin.lat === 'number' && typeof walkOrigin.lng === 'number' && (
         <WalkRadiusSheet
           originLat={walkOrigin.lat}
           originLng={walkOrigin.lng}

@@ -120,7 +120,7 @@ export default function WalkRadiusSheet({ originLat, originLng, originName, onCl
   const sheetRef = useRef<HTMLDivElement>(null)
 
   // Fetch ALL places once per radius change — no includedType sent to API
-  const cacheKey = `${originLat.toFixed(4)},${originLng.toFixed(4)}:${selectedRadius.meters}`
+  const cacheKey = `${Number(originLat).toFixed(4)},${Number(originLng).toFixed(4)}:${selectedRadius.meters}`
 
   useEffect(() => {
     const cached = sessionStorage.getItem('en_nearby:' + cacheKey)
