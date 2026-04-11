@@ -12,10 +12,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'city and dayType are required.' }, { status: 400 })
     }
 
-    // Route through OpenRouter using MiniMax token plan key (the only working path)
-    const apiKey = process.env.MINIMAX_API_KEY
+    // Route through OpenRouter using OPENAI_API_KEY (sk-or-v1 OpenRouter key)
+    const apiKey = process.env.OPENAI_API_KEY || process.env.MINIMAX_API_KEY
     if (!apiKey) {
-      return NextResponse.json({ error: 'AI service not configured. Add MINIMAX_API_KEY to Vercel env vars.' }, { status: 500 })
+      return NextResponse.json({ error: 'AI service not configured. Add OPENAI_API_KEY to Vercel env vars.' }, { status: 500 })
     }
 
     const dayTypeLabels: Record<string, string> = {
