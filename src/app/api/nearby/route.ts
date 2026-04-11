@@ -30,12 +30,27 @@ async function fetchNearby(lat: number, lng: number, radiusMeters: number) {
     body: JSON.stringify(body),
   })
 
-  if (!res.ok) {
-    console.error('Nearby search failed:', res.status, await res.text())
+  const status = res.status
+  const text = await res.text()
+
+  if (status !== 200) {
+    console.error(`Nearby search HTTP ${status}: ${text.slice(0, 200)}`)
     return []
   }
 
-  const data = await res.json()
+  let data: { places?: unknown[]; error?: { message?: string } }
+  try {
+    data = JSON.parse(text)
+  } catch {
+    console.error('Nearby: failed to parse Google response:', text.slice(0, 100))
+    return []
+  }
+
+  if (data.error && (data.error as { code?: number }).code) {
+    console.error('Google Places error:', JSON.stringify(data.error))
+    return []
+  }
+
   return data.places || []
 }
 
@@ -73,10 +88,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Always fetch ALL places — no includedType (not supported by this API key config)
-    const places = await fetchNearby(lat, lng, radiusMeters)
+    const rawPlaces = await fetchNearby(lat, lng, radiusMeters)
+    const places = rawPlaces as Record<string, unknown>[]
     const apiKey = process.env.GOOGLE_PLACES_API_KEY || ''
 
-    const results = places.map((place: Record<string, unknown>) => {
+    console.log(`[nearby] Google returned ${places.length} places for ${lat},${lng} within ${radiusMeters}m`)
+
+    const results = places.map((place) => {
       const location = place.location as { latitude: number; longitude: number } | undefined
       const destLat = location?.latitude ?? 0
       const destLng = location?.longitude ?? 0
