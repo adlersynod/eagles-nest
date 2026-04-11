@@ -428,10 +428,186 @@ body {
   margin-bottom: 0.25rem;
 }
 
+/* ── Date Picker ─────────────────────────────────── */
+.datepicker-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.datepicker-label {
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.5);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.datepicker-input {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.08);
+  color: #f0c040;
+  font-size: 0.95rem;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+  color-scheme: dark;
+}
+
+.datepicker-input:focus {
+  border-color: #f0c040;
+  box-shadow: 0 0 0 3px rgba(240,192,64,0.15);
+}
+
+/* ── Weather Header ─────────────────────────────── */
+.weather-header {
+  margin-bottom: 1rem;
+}
+
+/* ── Historical Note ──────────────────────────────── */
+.historical-note {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.82rem;
+  color: rgba(255,255,255,0.6);
+  margin-bottom: 0.75rem;
+}
+
+/* ── Travel Risk Badge ───────────────────────────── */
+.travel-risk-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.travel-risk-badge.risk-low {
+  background: rgba(74,222,128,0.12);
+  border: 1px solid rgba(74,222,128,0.25);
+  color: #6ee7a0;
+}
+
+.travel-risk-badge.risk-moderate {
+  background: rgba(240,192,64,0.12);
+  border: 1px solid rgba(240,192,64,0.25);
+  color: #f0c040;
+}
+
+.travel-risk-badge.risk-high {
+  background: rgba(240,80,80,0.12);
+  border: 1px solid rgba(240,80,80,0.25);
+  color: #f07070;
+}
+
+.risk-precip {
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+/* ── RV Parks Header ──────────────────────────────── */
+.parks-header {
+  margin-bottom: 1rem;
+}
+
+.vacancy-risk-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.vacancy-risk-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.vacancy-risk-badge {
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.vacancy-risk-badge.risk-low {
+  background: rgba(74,222,128,0.12);
+  border: 1px solid rgba(74,222,128,0.25);
+  color: #6ee7a0;
+}
+
+.vacancy-risk-badge.risk-seasonal {
+  background: rgba(240,192,64,0.12);
+  border: 1px solid rgba(240,192,64,0.25);
+  color: #f0c040;
+}
+
+.book-early-global,
+.book-early-badge {
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.55);
+  background: rgba(255,255,255,0.06);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+/* ── Vacancy Badge ───────────────────────────────── */
+.vacancy-badge {
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.2rem 0.45rem;
+  border-radius: 5px;
+  letter-spacing: 0.03em;
+}
+
+/* ── Campground Card Extras ───────────────────────── */
+.card-price {
+  font-size: 0.8rem;
+  color: #6ee7a0;
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+}
+
+.vacancy-note {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 0.4rem;
+}
+
+.check-avail-btn {
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* ── Mobile ────────────────────────────────────── */
 @media (max-width: 480px) {
   .header h1 {
-    font-size: 2rem;
+    font-size: 1.75rem;
+  }
+
+  .header p {
+    font-size: 0.82rem;
   }
 
   .weather-grid {
@@ -440,5 +616,42 @@ body {
 
   .card-grid {
     grid-template-columns: 1fr;
+  }
+
+  .card-body {
+    padding: 0.7rem 0.8rem 0.85rem;
+  }
+
+  .datepicker-wrap {
+    position: sticky;
+    bottom: 0;
+    background: rgba(15,25,35,0.95);
+    backdrop-filter: blur(8px);
+    padding: 0.75rem 0;
+    margin: 0 -1rem 0.75rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    z-index: 10;
+  }
+
+  .tabs {
+    gap: 0.15rem;
+  }
+
+  .tab {
+    font-size: 0.75rem;
+    padding: 0.5rem 0.35rem;
+  }
+
+  .card-directions-btn {
+    min-height: 44px;
+    min-width: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .card-photo {
+    height: 180px;
   }
 }
