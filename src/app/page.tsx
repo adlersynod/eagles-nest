@@ -443,10 +443,41 @@ function ParksWeatherBanner({ city, rangeStart, rangeEnd }: { city: string; rang
     return <div className="parks-weather-banner parks-weather-loading"><span>🌤️ Checking weather…</span></div>
   }
 
-  if (!weather?.forecast?.length) return null
+  // When beyond the 16-day forecast window, show seasonal normals + historical
+  // instead of misleading last-available forecast days (which are from a different season)
+  const beyondForecast = (weather as unknown as { beyondForecast?: boolean })?.beyondForecast
+
+  if (!weather) return null
 
   const risk = weather.travelRisk === 'high' ? '🔴' : weather.travelRisk === 'moderate' ? '🟡' : '🟢'
   const nightsLabel = nights > 0 ? ` · ${nights} night${nights !== 1 ? 's' : ''}` : ''
+
+  if (beyondForecast) {
+    // Show seasonal normals for the trip month instead of stale forecast
+    const s = weather.seasonal
+    return (
+      <div className="parks-weather-banner">
+        <div className="parks-weather-location">🌤️ {weather.location}{nightsLabel}</div>
+        <div className="parks-weather-beyond">
+          {s?.avgHigh && s?.avgLow && (
+            <span className="parks-weather-normals">
+              📅 {s.monthLabel} normals: {s.avgHigh}/{s.avgLow}
+              {s.avgPrecipMm != null && ` · ${s.avgPrecipMm}mm avg precip`}
+            </span>
+          )}
+          {s?.trend && (
+            <span className="parks-seasonal-trend"> · {s.trend} than normal</span>
+          )}
+          <span className="parks-weather-risk"> {risk} {weather.travelRisk} travel risk</span>
+        </div>
+        <div className="parks-weather-note">
+          📈 16-day forecast unavailable — tap Weather tab for historical averages
+        </div>
+      </div>
+    )
+  }
+
+  if (!weather.forecast?.length) return null
 
   return (
     <div className="parks-weather-banner">

@@ -724,6 +724,31 @@ body {
   color: rgba(255,255,255,0.4);
 }
 
+.parks-weather-beyond {
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.65);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.parks-weather-normals {
+  color: #60d3f0;
+  font-weight: 600;
+}
+
+.parks-seasonal-trend {
+  color: #a78bfa;
+}
+
+.parks-weather-note {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.3);
+  font-style: italic;
+  margin-top: 0.2rem;
+}
+
 .book-early-global,
 .book-early-badge {
   font-size: 0.78rem;
