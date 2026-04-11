@@ -96,19 +96,21 @@ export async function GET(request: NextRequest) {
         `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`
       )
       if (forecastRes.ok) {
-        const fcData: OpenMeteoForecastResponse = await forecastRes.json()
-        const days = fcData.daily
-        forecast = days.time.map((date, i) => {
-          const code = days.weather_code[i]
-          const { icon, desc } = weatherCodeToIconAndDesc(code)
-          return {
-            date,
-            maxTemp: `${Math.round(days.temperature_2m_max[i])}°C`,
-            minTemp: `${Math.round(days.temperature_2m_min[i])}°C`,
-            desc,
-            icon,
-          }
-        })
+        const fcData = await forecastRes.json()
+        const days = fcData?.daily
+        if (days?.time?.length) {
+          forecast = days.time.map((date: string, i: number) => {
+            const code = days.weather_code?.[i] ?? 0
+            const { icon, desc } = weatherCodeToIconAndDesc(code)
+            return {
+              date,
+              maxTemp: `${Math.round(days.temperature_2m_max?.[i] ?? 0)}°C`,
+              minTemp: `${Math.round(days.temperature_2m_min?.[i] ?? 0)}°C`,
+              desc,
+              icon,
+            }
+          })
+        }
       }
     } catch (e) {
       console.error('Forecast error:', e)
@@ -181,8 +183,17 @@ export async function GET(request: NextRequest) {
 
   // ── Step 6: Filter to requested date ────────────────────────────
   const targetDate = dateParam || new Date().toISOString().slice(0, 10)
+  const today = new Date().toISOString().slice(0, 10)
+
+  // Find the best starting index: target date if in future, today if in past, target otherwise
+  let startIdx = 0
   const targetIdx = forecast.findIndex((d) => d.date === targetDate)
-  const startIdx = targetIdx >= 0 ? targetIdx : 0
+  if (targetIdx >= 0) {
+    startIdx = targetIdx
+  } else if (targetDate < today) {
+    // Requested date is in the past — show most recent 3 days available
+    startIdx = Math.max(0, forecast.length - 3)
+  }
   const forecastSlice = forecast.slice(startIdx, startIdx + 3)
 
   return NextResponse.json({
