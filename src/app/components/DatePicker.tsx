@@ -74,10 +74,12 @@ export function DateRangePicker({ startValue, endValue, onStartChange, onEndChan
             min={today}
             max={maxCheckIn}
             onChange={(e) => {
-              onStartChange(e.target.value)
-              // If end is before new start, auto-advance end to start+1
-              if (endValue && e.target.value && endValue < e.target.value) {
-                onEndChange('')
+              const newStart = e.target.value
+              onStartChange(newStart)
+              // If end is before new start, push it to start + 1 night
+              if (endValue && newStart && endValue < newStart) {
+                const oneNightLater = new Date(new Date(newStart).getTime() + 86400000).toISOString().slice(0, 10)
+                onEndChange(oneNightLater)
               }
             }}
           />
