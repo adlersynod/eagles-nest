@@ -464,6 +464,49 @@ body {
   box-shadow: 0 0 0 3px rgba(240,192,64,0.15);
 }
 
+/* ── Date Range Picker ──────────────────────────── */
+.daterange-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.daterange-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.daterange-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+}
+
+.daterange-field-label {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.45);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.daterange-arrow {
+  color: rgba(255,255,255,0.35);
+  font-size: 1.2rem;
+  padding-top: 1.1rem;
+  flex-shrink: 0;
+}
+
+.daterange-nights {
+  font-size: 0.78rem;
+  color: #f0c040;
+  font-weight: 600;
+  margin-left: 0.2rem;
+}
+
 /* ── Weather Header ─────────────────────────────── */
 .weather-header {
   margin-bottom: 1rem;

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import DatePicker from './components/DatePicker'
+import DatePicker, { DateRangePicker } from './components/DatePicker'
 
 // ── Types ────────────────────────────────────────────────────────────
 type TabId = 'attractions' | 'restaurants' | 'parks' | 'weather'
@@ -208,7 +208,7 @@ function PlaceCard({ place }: { place: PlaceResult }) {
 }
 
 // ── Campground Card (for RV Parks tab) ──────────────────────────────
-function CampgroundCard({ camp, date, isPeakSeason }: { camp: CampgroundResult; date: string; isPeakSeason: boolean }) {
+function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason }: { camp: CampgroundResult; rangeStart: string; rangeEnd: string; isPeakSeason: boolean }) {
   const vacancy = VACANCY_LABELS[camp.vacancyStatus]
   const [imgError, setImgError] = useState(false)
 
@@ -298,9 +298,9 @@ function ResultGrid({ places, loading, children }: {
 
 // ── Campgrounds Grid ─────────────────────────────────────────────────
 function CampgroundsGrid({
-  campgrounds, loading, date, isPeakSeason,
+  campgrounds, loading, rangeStart, rangeEnd, isPeakSeason,
 }: {
-  campgrounds: CampgroundResult[]; loading: boolean; date: string; isPeakSeason: boolean
+  campgrounds: CampgroundResult[]; loading: boolean; rangeStart: string; rangeEnd: string; isPeakSeason: boolean
 }) {
   if (loading) {
     return (
@@ -320,7 +320,7 @@ function CampgroundsGrid({
   return (
     <div className="card-grid">
       {campgrounds.map((camp, i) => (
-        <CampgroundCard key={i} camp={camp} date={date} isPeakSeason={isPeakSeason} />
+        <CampgroundCard key={i} camp={camp} rangeStart={rangeStart} rangeEnd={rangeEnd} isPeakSeason={isPeakSeason} />
       ))}
     </div>
   )
@@ -448,7 +448,12 @@ export default function Home() {
   const [campgrounds, setCampgrounds] = useState<CampgroundResult[]>([])
   const [campgroundsLoading, setCampgroundsLoading] = useState(false)
   const [isPeakSeason, setIsPeakSeason] = useState(false)
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10))
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const [selectedDate, setSelectedDate] = useState(todayStr)
+  const [rangeStart, setRangeStart] = useState(todayStr)
+  const [rangeEnd, setRangeEnd] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 3); return d.toISOString().slice(0, 10)
+  })
 
   const handleSearch = async () => {
     if (!city.trim()) return
@@ -535,18 +540,22 @@ export default function Home() {
                   <span className="book-early-global">📅 Book Early Recommended</span>
                 )}
               </div>
-              <DatePicker
-                value={selectedDate}
-                onChange={setSelectedDate}
-                label={`Checking availability for: ${formatDate(selectedDate)}`}
+              <DateRangePicker
+                startValue={rangeStart}
+                endValue={rangeEnd}
+                onStartChange={setRangeStart}
+                onEndChange={setRangeEnd}
+                label="Trip dates"
                 maxDays={180}
+                maxNights={30}
               />
             </div>
           )}
           <CampgroundsGrid
             campgrounds={campgrounds}
             loading={campgroundsLoading}
-            date={selectedDate}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
             isPeakSeason={peakSeason}
           />
           {/* Fall back to Google Places parks if no campground data */}
