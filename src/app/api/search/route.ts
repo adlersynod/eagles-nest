@@ -50,16 +50,27 @@ function isChainPlace(name: string): boolean {
 }
 
 function demoteResults(places: Record<string, unknown>[]): Record<string, unknown>[] {
-  // Sort by quality, pushing chains and tourist-heavy spots down — don't remove them
+  // Score each place: fewer reviews + non-chain + unique type = more "local"
+  const CHAIN_KEYWORDS = ['starbucks', 'mcdonald', 'subway', 'chipotle', 'olive garden',
+    'cheesecake factory', 'applebee', 'tgi friday', 'denny', 'ihop', 'panera',
+    'dunkin', 'wendy', 'burger king', 'kfc', 'pizza hut', 'domino', ' papa john',
+    'five guys', 'shake shack', 'in-n-out', 'chick-fil-a', 'costco', 'walmart',
+    'target', 'ross', 'safeway', 'kroger', ' CVS ', 'walgreens', 'bank of america',
+    'chase bank', 'wells fargo', 'hertz', 'avis', 'enterprise rent']
+
   return places
     .map((place) => {
       const reviewCount = (place.reviews as Array<{ originalRatingCount?: { value?: number } }> | undefined)?.[0]?.originalRatingCount?.value ?? 0
       const displayName = (place.displayName as { text: string } | null)?.text || ''
-      const isChain = isChainPlace(displayName)
-      // Demotion score: chains and >500 reviews get penalized heavily, 200-500 gets light penalty
-      const chainPenalty = isChain ? 300 : 0
-      const reviewPenalty = reviewCount > 500 ? 300 : reviewCount > 200 ? 100 : 0
-      const score = -(chainPenalty + reviewPenalty)
+      const primaryType = (place.primaryType as string || '').toLowerCase()
+      const isChain = CHAIN_KEYWORDS.some(k => displayName.toLowerCase().includes(k))
+      // Local score: lower is better for "local gems"
+      // Penalize: chains (+500), very high reviews (+200), chain types (+100)
+      let score = 0
+      if (isChain) score += 500
+      if (reviewCount > 300) score += 200
+      else if (reviewCount > 100) score += 50
+      if (['restaurant', 'cafe', 'coffee shop', 'fast food'].includes(primaryType) && isChain) score += 100
       return { place, score }
     })
     .sort((a, b) => a.score - b.score)

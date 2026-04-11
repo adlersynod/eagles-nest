@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifySessionToken, getSessionToken } from '@/lib/auth'
+import { verifySessionToken } from '@/lib/auth'
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
@@ -7,7 +7,7 @@ export async function middleware(req: NextRequest) {
   // Public paths — allow without auth
   if (
     pathname.startsWith('/login') ||
-    pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/api/') ||    // API routes handle their own auth
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon') ||
     pathname === '/favicon.ico'
@@ -15,7 +15,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  // Check for valid session
+  // Page routes — require valid session
   const token = req.cookies.get('eagles_nest_session')?.value
 
   if (!token) {
@@ -39,7 +39,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico, sitemap.xml, robots.txt
+     * - /api/ routes (handled by each route)
      */
-    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|api/).*)',
   ],
 }

@@ -1,10 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { verifySessionToken } from '@/lib/auth'
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions'
 const MODEL = 'minimax/MiniMax-M2.7'
 const MAX_TOKENS = 1200
 
+async function getSessionFromRequest(req: NextRequest): Promise<string | null> {
+  return req.cookies.get('eagles_nest_session')?.value ?? null
+}
+
 export async function POST(req: NextRequest) {
+  // Auth check — verify session before allowing AI plan generation
+  const token = await getSessionFromRequest(req)
+  if (!token || !await verifySessionToken(token)) {
+    return NextResponse.json({ error: 'Unauthorized. Please reload and log in again.' }, { status: 401 })
+  }
+
   try {
     const { city, dayType, startDate, endDate, weather, contextPlaces } = await req.json()
 
