@@ -265,8 +265,11 @@ export default function Home() {
   return (
     <main className="app">
       <header className="header">
-        <h1>🦅 Eagle's Nest</h1>
-        <p>Your RV Travel Companion — find places, parks & weather anywhere</p>
+        <img src="/eagle-clean.png" alt="The Adler Synod" className="logo-img" />
+        <div className="logo-text">
+          <h1>Eagle's Nest</h1>
+          <p className="tagline">RV Travel Companion</p>
+        </div>
       </header>
 
       <LocationInput
