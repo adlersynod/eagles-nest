@@ -862,41 +862,60 @@ function ImportPanel() {
     a.click()
   }
 
+  
   const fixGaps = async () => {
     setLoading(true)
+    // Create a copy of the current stops to work from
+    const currentStops = [...tripData.stops]
     const newStops = []
     let modified = false
     
-    if (!tripData || !tripData.stops) return
+    if (!tripData || !currentStops) return
 
-    for (let i = 0; i < tripData.stops.length; i++) {
-        const stop = { ...tripData.stops[i] }
-        const prevStop = tripData.stops[i-1]
+    for (let i = 0; i < currentStops.length; i++) {
+        const stop = { ...currentStops[i] }
+        const prevStop = currentStops[i-1]
         
+        // Only split if it's a long leg and NOT already an Adler suggestion
         if (prevStop && stop.miles > 300 && !stop.isAdlerSuggest) {
           modified = true
+          
+          // Calculate UNIQUE midpoint for this specific leg
+          const ratio = 250 / stop.miles
+          const lat = prevStop.lat + (stop.lat - prevStop.lat) * ratio
+          const lng = prevStop.lng + (stop.lng - prevStop.lng) * ratio
+
           try {
-            const scoutRes = await fetch('/api/fix-gap', {
+            // Add a cache-busting timestamp and unique coordinates to ensure distinct results
+            const scoutRes = await fetch(`/api/fix-gap?t=${Date.now()}&lat=${lat.toFixed(4)}&lng=${lng.toFixed(4)}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ startLat: prevStop.lat, startLng: prevStop.lng, endLat: stop.lat, endLng: stop.lng, distance: stop.miles })
+              body: JSON.stringify({ 
+                startLat: prevStop.lat, 
+                startLng: prevStop.lng, 
+                endLat: stop.lat, 
+                endLng: stop.lng, 
+                distance: stop.miles 
+              })
             })
             const scoutData = await scoutRes.json()
             
             newStops.push({
-              stopName: `🔍 Adler Scout: Split for ${Math.round(stop.miles)}mi Leg`,
+              stopName: `🔍 Adler Scout: ${stop.miles > 0 ? Math.round(stop.miles) : ''}mi Split`,
               lat: scoutData.midpoint.lat,
               lng: scoutData.midpoint.lng,
               miles: 250,
-              arrivalDate: prevStop.departureDate,
+              arrivalDate: prevStop.departureDate || '',
               nights: 1,
               isAdlerSuggest: true,
               suggestions: scoutData.suggestions || [],
               isCityWaypoint: false
             })
           } catch (e) {
-            console.error(e)
+            console.error("Scout failed for leg", i, e)
           }
+          
+          // Update the original stop's mileage to be the remaining distance
           stop.miles = Math.round(stop.miles - 250)
         }
         newStops.push(stop)
@@ -907,6 +926,7 @@ function ImportPanel() {
     }
     setLoading(false)
   }
+
 
   const selectSuggestion = (stopIndex: number, suggestion: any) => {
     const updatedStops = [...tripData.stops]
