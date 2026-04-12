@@ -299,7 +299,7 @@ export async function GET(request: NextRequest) {
     }).catch(() => {})
 
     console.log('[SEARCH FINAL] mode=', mode, 'isAll=', isAll, 'results=', results.length)
-    return NextResponse.json({ results, city, mode })
+    return NextResponse.json({ results, city, mode, _marker: 'UNIQUE_AFTER_DEBUG_v2' })
   } catch (error) {
     console.error('Search error:', error)
     return NextResponse.json({ error: 'Failed to fetch results.' }, { status: 500 })
