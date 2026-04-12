@@ -75,33 +75,38 @@ async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
         : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(campName)}`
 
       // ── Big Rig Score ──────────────────────────────────────────────
+      // Recreation.gov activities are generic — use price + rating + activity count as proxies
       const activityNames = (item?.activities || [])
         .map((a: { activity_name: string }) => a.activity_name.toLowerCase())
 
-      const hasElectric = activityNames.some((a: string) => a.includes('electric'))
-      const hasWater = activityNames.some((a: string) => a.includes('water'))
-      const hasSewer = activityNames.some((a: string) => a.includes('sewer'))
-      const hasWifi = activityNames.some((a: string) => a.includes('wifi') || a.includes('internet'))
-      const hasPool = activityNames.some((a: string) => a.includes('pool'))
-      const isCamping = activityNames.some((a: string) => a.includes('camping') || a.includes('camp'))
+      // Price: higher price suggests full-hookup resort (proxy for big-rig friendly)
+      const priceRange = item?.price_range as { amount_max?: number } | null
+      const maxPrice = priceRange?.amount_max || 0
+      const priceScore = maxPrice >= 80 ? 2.5 : maxPrice >= 50 ? 1.5 : maxPrice >= 30 ? 0.5 : 0
 
-      // Score based on hookup level and amenities (accessible_campsites_count is ADA count, not 45'+ length — use sparingly)
-      let hookupScore = 0
-      if (hasElectric) hookupScore += 1.5
-      if (hasWater) hookupScore += 0.5
-      if (hasSewer) hookupScore += 1.0
-      const amenityScore = Math.min(2, [hasWifi, hasPool, isCamping, activityNames.length > 5].filter(Boolean).length)
-      // Base score from infrastructure
-      const rawBigRig = Math.min(5, (hookupScore + amenityScore))
-      const bigRigScore = Math.round(Math.max(1, rawBigRig) * 10) / 10
+      // Rating: above 4 is a quality park
+      const rating = (item?.average_rating as number) || 0
+      const ratingScore = rating >= 4.5 ? 1.5 : rating >= 4.0 ? 1.0 : rating >= 3.5 ? 0.5 : 0
+
+      // Activity richness: more activities = more amenities
+      const activityCount = activityNames.length
+      const amenityScore = Math.min(2, activityCount / 4)
+
+      // Basic camping amenities present
+      const hasCamping = activityNames.some((a: string) => a.includes('camp') || a.includes('rv'))
+      const hasFishing = activityNames.some((a: string) => a.includes('fish'))
+      const hasHiking = activityNames.some((a: string) => a.includes('hik'))
+      const hasSwimming = activityNames.some((a: string) => a.includes('swim') || a.includes('beach'))
+
+      const baseScore = priceScore + ratingScore + amenityScore
+      const bigRigScore = Math.round(Math.min(5, Math.max(1, baseScore)) * 10) / 10
 
       const bigRigNotes: string[] = []
-      if (hasElectric) bigRigNotes.push('50-amp sites')
-      if (hasSewer && hasWater) bigRigNotes.push('full hookups')
-      else if (hasWater) bigRigNotes.push('water hookup')
-      if (hasWifi) bigRigNotes.push('WiFi')
-      if (rawBigRig >= 4) bigRigNotes.push('excellent for big rigs')
-      else if (rawBigRig >= 3) bigRigNotes.push('good for large rigs')
+      if (maxPrice >= 80) bigRigNotes.push('premium resort (full hookups likely)')
+      else if (maxPrice >= 50) bigRigNotes.push('mid-range park (50-amp likely)')
+      if (rating >= 4.0) bigRigNotes.push(`★ ${rating} rating`)
+      if (amenityScore >= 1.5) bigRigNotes.push('rich amenities')
+      if (bigRigScore >= 3.5) bigRigNotes.push('recommended for big rigs')
       else bigRigNotes.push('call ahead for 45\'+ rigs')
 
       results.push({
