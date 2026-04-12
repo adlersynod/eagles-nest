@@ -148,63 +148,38 @@ async function fetchNearbyServices(lat: number, lng: number, apiKey: string) {
 }
 
 // ── Cell Signal Estimate ──────────────────────────────────────────────────────
+// Proxies cell coverage using population density via Google Places cafe count.
+// More cafes/restaurants nearby = higher population density = better cell coverage.
 async function fetchCellSignal(lat: number, lng: number): Promise<CampgroundResult['cellSignal']> {
-  const radius = 8000
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY
+  if (!apiKey) return { score: 'unknown', carriers: [], note: 'Cell signal data unavailable' }
+
   try {
-    // Source 1: OSM Overpass — counts mapped cell/comm towers
-    const overpassQuery = `data=[out:json][timeout:3];nwr["man_made"="tower"](around:${radius},${lat},${lng});out count;`
-    let osmTowerCount = 0
-    try {
-      const overpassRes = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ data: overpassQuery }),
-        signal: AbortSignal.timeout(6000),
-      })
-      if (overpassRes.ok) {
-        const overpassData = await overpassRes.json()
-        const countObj = overpassData?.elements?.[0]
-        osmTowerCount = countObj ? parseInt(countObj?.tags?.total || '0') : 0
-      }
-    } catch { /* OSM optional */ }
+    // Count cafes + restaurants within 5km as population density proxy
+    const nearbyRes = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'places.name' },
+      body: JSON.stringify({
+        locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 5000 } },
+        includedType: 'cafe',
+        languageCode: 'en',
+        maxResultCount: 10,
+      }),
+      signal: AbortSignal.timeout(6000),
+    })
 
-    // Source 2: Google Places cafe count as population density proxy
-    const apiKey = process.env.GOOGLE_PLACES_API_KEY
-    let placeCount = 0
-    if (apiKey) {
-      try {
-        const nearbyRes = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'places.name' },
-          body: JSON.stringify({
-            locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 5000 } },
-            includedType: 'cafe', languageCode: 'en', maxResultCount: 5,
-          }),
-          signal: AbortSignal.timeout(5000),
-        })
-        if (nearbyRes.ok) {
-          const nearbyData = await nearbyRes.json()
-          placeCount = nearbyData.places?.length || 0
-        }
-      } catch { /* optional */ }
-    }
+    if (!nearbyRes.ok) return { score: 'unknown', carriers: [], note: 'Cell signal data unavailable' }
+    const data = await nearbyRes.json()
+    const count = data.places?.length || 0
 
-    // Combine into coverage score
-    const rawScore = osmTowerCount * 0.8 + placeCount * 0.4
     let score: 'excellent' | 'good' | 'fair' | 'poor' | 'unknown' = 'unknown'
-    if (rawScore >= 4) score = 'excellent'
-    else if (rawScore >= 2.5) score = 'good'
-    else if (rawScore >= 1) score = 'fair'
-    else if (rawScore > 0) score = 'poor'
-
     let note: string
-    if (osmTowerCount > 0) {
-      note = `~${osmTowerCount} tower${osmTowerCount !== 1 ? 's' : ''} mapped + ${placeCount} nearby places`
-    } else if (placeCount > 0) {
-      note = `${placeCount} nearby places — sparse coverage likely`
-    } else {
-      note = 'Remote area — cell coverage limited'
-    }
+
+    if (count >= 8) { score = 'excellent'; note = `Likely excellent coverage (${count} nearby places)` }
+    else if (count >= 5) { score = 'good'; note = `Likely good coverage (${count} nearby places)` }
+    else if (count >= 2) { score = 'fair'; note = `Likely fair coverage (${count} nearby places — rural area)` }
+    else if (count === 1) { score = 'poor'; note = `Limited coverage (only ${count} place nearby — remote)` }
+    else { score = 'poor'; note = 'Very remote — cell coverage limited' }
 
     return { score, carriers: [], note }
   } catch {
