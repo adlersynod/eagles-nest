@@ -298,6 +298,7 @@ export async function GET(request: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     }).catch(() => {})
 
+    console.log('[SEARCH FINAL] mode=', mode, 'isAll=', isAll, 'results=', results.length)
     return NextResponse.json({ results, city, mode })
   } catch (error) {
     console.error('Search error:', error)
