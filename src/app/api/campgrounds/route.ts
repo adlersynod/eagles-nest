@@ -29,6 +29,79 @@ type CampgroundResult = {
   }
 }
 
+// ── Ookla Cell Coverage Lookup ────────────────────────────────────────────────
+// Loaded from public/ookla_us_cells.json — real speedtest data at zoom-9 (~5km cells)
+type OoklaCell = { d: number; u: number; lat: number; tier: number; tests: number; n: number; lat_qk: number; lon_qk: number }
+let _ooklaCache: Record<string, OoklaCell> | null = null
+
+async function loadOoklaCache(): Promise<Record<string, OoklaCell>> {
+  if (_ooklaCache) return _ooklaCache
+  try {
+    const res = await fetch(new URL('/ookla_us_cells.json', process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000').toString())
+    if (res.ok) {
+      _ooklaCache = await res.json()
+    }
+  } catch { _ooklaCache = {} }
+  return _ooklaCache || {}
+}
+
+function latLonToQuadkey9(lat: number, lon: number): string {
+  const z = 9, n = 2 ** z
+  const x = Math.floor((lon + 180) / 360 * n)
+  const y = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n)
+  const cx = Math.max(0, Math.min(n - 1, x))
+  const cy = Math.max(0, Math.min(n - 1, y))
+  let qk = ''
+  for (let i = z; i > 0; i--) {
+    let d = 0, m = 1 << (i - 1)
+    if (cx & m) d += 1
+    if (cy & m) d += 2
+    qk += d
+  }
+  return qk
+}
+
+// ── Cell Signal Estimate (Ookla primary + Google Places fallback) ─────────────
+async function fetchCellSignal(lat: number, lng: number): Promise<CampgroundResult['cellSignal']> {
+  // ── Source 1: Ookla speedtest data (real RVer measurements) ──
+  try {
+    const cache = await loadOoklaCache()
+    const qk9 = latLonToQuadkey9(lat, lng)
+    const cell = cache[qk9]
+    if (cell && cell.tests > 0) {
+      const score = cell.tier >= 5 ? 'excellent' : cell.tier >= 4 ? 'good' : cell.tier >= 3 ? 'fair' : 'poor'
+      return {
+        score, carriers: [],
+        note: `Ookla: ${cell.d} Mbps down / ${cell.u} Mbps up, ${cell.lat}ms latency (${cell.tests} tests)`,
+      }
+    }
+  } catch { /* Ookla optional */ }
+
+  // ── Source 2: Google Places density proxy (fallback) ──
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY
+  if (!apiKey) return { score: 'unknown', carriers: [], note: 'No cell data available for this area' }
+  try {
+    const nearbyRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'places.name' },
+      body: JSON.stringify({
+        textQuery: 'cafe restaurant',
+        locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 5000 } },
+        languageCode: 'en', maxResultCount: 10,
+      }),
+      signal: AbortSignal.timeout(6000),
+    })
+    if (!nearbyRes.ok) return { score: 'unknown', carriers: [], note: 'Cell signal data unavailable' }
+    const data = await nearbyRes.json()
+    const count = data.places?.length || 0
+    if (count >= 8) return { score: 'excellent', carriers: [], note: `Likely excellent coverage (${count} nearby places)` }
+    if (count >= 5) return { score: 'good', carriers: [], note: `Likely good coverage (${count} nearby places)` }
+    if (count >= 2) return { score: 'fair', carriers: [], note: `Likely fair coverage (${count} nearby places)` }
+    return { score: 'poor', carriers: [], note: 'Remote — limited cell coverage' }
+  } catch {
+    return { score: 'unknown', carriers: [], note: 'Cell signal data unavailable' }
+  }
+}
 // ── Recreation.gov search ─────────────────────────────────────────────────────
 async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
   try {
@@ -149,46 +222,6 @@ async function fetchNearbyServices(lat: number, lng: number, apiKey: string) {
     dumpStation: results.dumpStation?.name || undefined,
     dumpDistanceMi: results.dumpStation?.distanceMi,
   }
-}
-
-// ── Cell Signal Estimate ──────────────────────────────────────────────────────
-// Proxies cell coverage using population density via Google Places cafe count.
-// More cafes/restaurants nearby = higher population density = better cell coverage.
-async function fetchCellSignal(lat: number, lng: number): Promise<CampgroundResult['cellSignal']> {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY
-  if (!apiKey) return { score: 'unknown', carriers: [], note: 'Cell signal data unavailable' }
-
-  let statusCode = 0; let errMsg = 'unknown'
-  try {
-    const nearbyRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'places.name' },
-      body: JSON.stringify({
-        textQuery: 'cafe restaurant',
-        locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 5000 } },
-        languageCode: 'en',
-        maxResultCount: 10,
-      }),
-      signal: AbortSignal.timeout(6000),
-    })
-    statusCode = nearbyRes.status
-    if (!nearbyRes.ok) {
-      errMsg = `http_${statusCode}`
-      const txt = await nearbyRes.text().catch(() => '')
-      errMsg += txt.substring(0, 80)
-    } else {
-      const data = await nearbyRes.json()
-      const count = data.places?.length || 0
-      if (count >= 8) return { score: 'excellent', carriers: [], note: `Likely excellent coverage (${count} nearby places)` }
-      if (count >= 5) return { score: 'good', carriers: [], note: `Likely good coverage (${count} nearby places)` }
-      if (count >= 2) return { score: 'fair', carriers: [], note: `Likely fair coverage (${count} nearby places — rural area)` }
-      if (count === 1) return { score: 'poor', carriers: [], note: `Limited coverage (only ${count} place nearby — remote)` }
-      return { score: 'poor', carriers: [], note: 'Very remote — cell coverage limited' }
-    }
-  } catch (e: unknown) {
-    errMsg = `catch_${String(e).substring(0, 60)}`
-  }
-  return { score: 'unknown', carriers: [], note: errMsg }
 }
 
 // ── Campendium Reviews ────────────────────────────────────────────────────────
