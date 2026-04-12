@@ -862,74 +862,63 @@ function ImportPanel() {
     a.click()
   }
 
-  
   const fixGaps = async () => {
-    setLoading(true)
-    // Create a copy of the current stops to work from
-    const currentStops = [...tripData.stops]
-    const newStops = []
-    let modified = false
-    
-    if (!tripData || !currentStops) return
+    setLoading(true);
+    const originalStops = [...tripData.stops];
+    const newStops = [];
+    let modified = false;
 
-    for (let i = 0; i < currentStops.length; i++) {
-        const stop = { ...currentStops[i] }
-        const prevStop = currentStops[i-1]
+    // Sequential Loop with Unique ID Generation for Each Stop
+    for (let i = 0; i < originalStops.length; i++) {
+        const stop = { ...originalStops[i] };
+        const prevStop = originalStops[i-1];
         
-        // Only split if it's a long leg and NOT already an Adler suggestion
-        if (prevStop && stop.miles > 300 && !stop.isAdlerSuggest) {
-          modified = true
-          
-          // Calculate UNIQUE midpoint for this specific leg
-          const ratio = 250 / stop.miles
-          const lat = prevStop.lat + (stop.lat - prevStop.lat) * ratio
-          const lng = prevStop.lng + (stop.lng - prevStop.lng) * ratio
+        if (prevStop && stop.miles > 300 && !stop.isAdlerSuggest && !stop.isFixed) {
+          modified = true;
+          const ratio = 250 / stop.miles;
+          const lat = parseFloat((prevStop.lat + (stop.lat - prevStop.lat) * ratio).toFixed(4));
+          const lng = parseFloat((prevStop.lng + (stop.lng - prevStop.lng) * ratio).toFixed(4));
 
           try {
-            // Add a cache-busting timestamp and unique coordinates to ensure distinct results
-            const scoutRes = await fetch(`/api/fix-gap?t=${Date.now()}&lat=${lat.toFixed(4)}&lng=${lng.toFixed(4)}`, {
+            // UNIQUE CACHE-BUSTING PER LEG REQUEST
+            const requestId = `gap-scout-${i}-${Math.random().toString(36).substr(2, 5)}-${Date.now()}`;
+            const scoutRes = await fetch(`/api/fix-gap?id=${requestId}&lat=${lat}&lng=${lng}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                startLat: prevStop.lat, 
-                startLng: prevStop.lng, 
-                endLat: stop.lat, 
-                endLng: stop.lng, 
-                distance: stop.miles 
-              })
-            })
-            const scoutData = await scoutRes.json()
+              body: JSON.stringify({ startLat: prevStop.lat, startLng: prevStop.lng, endLat: stop.lat, endLng: stop.lng, distance: stop.miles })
+            });
+            const scoutData = await scoutRes.json();
             
             newStops.push({
-              stopName: `🔍 Adler Scout: ${stop.miles > 0 ? Math.round(stop.miles) : ''}mi Split`,
+              id: requestId,
+              stopName: `🔍 Adler Scout: ${Math.round(stop.miles)}mi Leg Gap`,
               lat: scoutData.midpoint.lat,
               lng: scoutData.midpoint.lng,
               miles: 250,
               arrivalDate: prevStop.departureDate || '',
               nights: 1,
               isAdlerSuggest: true,
-              suggestions: scoutData.suggestions || [],
+              suggestions: scoutData.suggestions || [], // Unique per request
               isCityWaypoint: false
-            })
+            });
+            
+            stop.miles = Math.round(stop.miles - 250);
+            stop.id = `rem-${i}-${Date.now()}`;
           } catch (e) {
-            console.error("Scout failed for leg", i, e)
+            console.error("Gap scout failed:", e);
           }
-          
-          // Update the original stop's mileage to be the remaining distance
-          stop.miles = Math.round(stop.miles - 250)
         }
-        newStops.push(stop)
+        newStops.push(stop);
     }
     
     if (modified) {
-      setTripData({ ...tripData, stops: newStops, stopCount: newStops.length })
+      setTripData({ ...tripData, stops: newStops, stopCount: newStops.length });
     }
-    setLoading(false)
+    setLoading(false);
   }
 
-
   const selectSuggestion = (stopIndex: number, suggestion: any) => {
-    const updatedStops = [...tripData.stops]
+    const updatedStops = [...tripData.stops];
     updatedStops[stopIndex] = {
       ...updatedStops[stopIndex],
       stopName: suggestion.name,
@@ -937,9 +926,10 @@ function ImportPanel() {
       lng: suggestion.lng,
       url: suggestion.url,
       isAdlerSuggest: false,
+      isFixed: true,
       suggestions: []
     }
-    setTripData({ ...tripData, stops: updatedStops })
+    setTripData({ ...tripData, stops: updatedStops });
   }
 
   return (
@@ -949,10 +939,10 @@ function ImportPanel() {
           <h2 className="plan-title">Adler Bridge</h2>
           {tripData && (
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button className="mode-btn" style={{ background: '#34c759', padding: '6px 12px', fontSize: '12px', minWidth: '100px' }} onClick={downloadGPX}>Download GPX</button>
+              <button className="mode-btn" style={{ background: '#34c759', padding: '10px 16px', fontSize: '13px' }} onClick={downloadGPX}>Download GPX</button>
               <button 
                 className="mode-btn" 
-                style={{ background: '#ff9500', padding: '6px 12px', fontSize: '12px', minWidth: '100px' }} 
+                style={{ background: '#ff9500', padding: '10px 16px', fontSize: '13px' }} 
                 onClick={fixGaps}
                 disabled={loading}
               >
@@ -961,7 +951,7 @@ function ImportPanel() {
             </div>
           )}
         </div>
-        <p className="plan-subtitle">Import. Scout Gaps. Sync Back.</p>
+        <p className="plan-subtitle">Import. Scout Unique Gaps. Sync Back.</p>
       </div>
 
       {!tripData && (
@@ -995,13 +985,14 @@ function ImportPanel() {
           <div className="stop-list">
             {tripData.stops.map((stop: any, i: number) => {
               const driveAlert = !stop.isAdlerSuggest && stop.miles > 300
-              
+              const uniqueKey = stop.id || `${i}-${stop.stopName}`;
+
               return (
-                <div key={i} className={`stop-item ${stop.isAdlerSuggest ? 'adler-suggest' : ''}`} style={stop.isAdlerSuggest ? {border:'1px dashed #ff9500'} : {}}>
+                <div key={uniqueKey} className={`stop-item ${stop.isAdlerSuggest ? 'adler-suggest' : ''}`} style={stop.isAdlerSuggest ? {border:'2px dashed #ff9500'} : {}}>
                   <div className="stop-main">
                     <span className="stop-num">{i + 1}</span>
                     <div className="stop-info">
-                      <div className="stop-name" style={stop.isAdlerSuggest ? {color:'#ff9500'} : {}}>{stop.stopName}</div>
+                      <div className="stop-name" style={stop.isAdlerSuggest ? {color:'#ff9500', fontWeight: 'bold'} : {}}>{stop.stopName}</div>
                       <div className="stop-meta">
                         {stop.nights}n • {stop.miles} mi {stop.arrivalDate ? `• ${stop.arrivalDate}` : ''}
                       </div>
@@ -1011,19 +1002,20 @@ function ImportPanel() {
                   
                   {stop.isAdlerSuggest && stop.suggestions && (
                     <div className="scout-suggestions" style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <p style={{ fontSize: '0.75rem', color: '#8a9aaa', margin: '0 0 4px', fontWeight: 600 }}>FASTEST RV PARKS AT 250mi MARK:</p>
+                      <p style={{ fontSize: '0.85rem', color: '#ff9500', margin: '0 0 4px', fontWeight: 800 }}>OPTIONS FOR THIS LEG:</p>
                       {stop.suggestions.map((sug: any, j: number) => (
-                        <div key={j} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div key={`${uniqueKey}-${j}`} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.06)', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)' }}>
                           <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{sug.name}</div>
-                            <a href={sug.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: '#007aff', textDecoration: 'underline' }}>View Website</a>
+                            <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{sug.name}</div>
+                            <div style={{ fontSize: '0.7rem', color: '#8a9aaa' }}>{sug.location || ""}</div>
+                            <a href={sug.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: '#007aff', textDecoration: 'underline' }}>Official Website</a>
                           </div>
                           <button 
                             className="mode-btn" 
-                            style={{ background: '#34c759', padding: '6px 12px', fontSize: '11px', fontWeight: 700 }}
+                            style={{ background: '#34c759', padding: '8px 14px', fontSize: '11px', fontWeight: 800 }}
                             onClick={() => selectSuggestion(i, sug)}
                           >
-                            Add
+                            ADD
                           </button>
                         </div>
                       ))}
