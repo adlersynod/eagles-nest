@@ -528,6 +528,7 @@ const EMPTY_MESSAGES: Record<TabId, { emoji: string; text: string }> = {
   parks: { emoji: '🌲', text: 'No parks found. Try a nearby city.' },
   weather: { emoji: '🌤️', text: 'Weather data unavailable for this location.' },
   plans: { emoji: '📋', text: 'Generate a plan above.' },
+  import: { emoji: '📥', text: 'Ready to import your RV Trip Wizard export.' },
 }
 
 function ResultGrid({ places, loading, children, tabId, onWalkFromHere, badge }: {
