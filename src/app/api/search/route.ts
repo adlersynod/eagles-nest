@@ -258,9 +258,7 @@ export async function GET(request: NextRequest) {
 
       const textData = await textRes.json()
       places = textData.places || []
-      console.log('[CHECK] type=', type, 'mode=', mode, 'isAll=', mode === 'all', 'firstPageCount=', places.length, 'nextPageToken=', !!textData.nextPageToken)
-
-      // Collect all pages for 'all' mode
+            // Collect all pages for 'all' mode
       if (isAll && textData.nextPageToken) {
         for (let page = 0; page < 3; page++) {
           await new Promise(r => setTimeout(r, 1200))
@@ -288,7 +286,7 @@ export async function GET(request: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     }).catch(() => {})
 
-    return NextResponse.json({ results, city, mode, _test_v5: 'THIS_IS_V5_CODE' })
+    return NextResponse.json({ results, city, mode })
   } catch (error) {
     console.error('Search error:', error)
     return NextResponse.json({ error: 'Failed to fetch results.' }, { status: 500 })
