@@ -258,6 +258,7 @@ export async function GET(request: NextRequest) {
 
       const textData = await textRes.json()
       places = textData.places || []
+      console.log('[CHECK] type=', type, 'mode=', mode, 'isAll=', mode === 'all', 'firstPageCount=', places.length, 'nextPageToken=', !!textData.nextPageToken)
 
       // Collect all pages for 'all' mode
       if (isAll && textData.nextPageToken) {
