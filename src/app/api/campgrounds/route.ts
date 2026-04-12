@@ -90,7 +90,7 @@ async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
       if (hasElectric) hookupScore += 1.5
       if (hasWater) hookupScore += 0.5
       if (hasSewer) hookupScore += 1.0
-      const amenityScore = Math.min(2, [hasWifi, hasPool, hasCamping, activityNames.length > 5].filter(Boolean).length)
+      const amenityScore = Math.min(2, [hasWifi, hasPool, isCamping, activityNames.length > 5].filter(Boolean).length)
       // Base score from infrastructure
       const rawBigRig = Math.min(5, (hookupScore + amenityScore))
       const bigRigScore = Math.round(Math.max(1, rawBigRig) * 10) / 10
