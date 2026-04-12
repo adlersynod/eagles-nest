@@ -57,16 +57,24 @@ async function fetchCellSignal(lat: number, lng: number): Promise<CampgroundResu
   // ── Source 1: Ookla speedtest data (real RVer measurements) ──
   try {
     const cache = OOKLA_CELLS
-    const qk9 = latLonToQuadkey9(lat, lng)
-    const cell = cache[qk9]
-    if (cell && cell.tests > 0) {
-      const score = cell.tier >= 5 ? 'excellent' : cell.tier >= 4 ? 'good' : cell.tier >= 3 ? 'fair' : 'poor'
-      return {
-        score, carriers: [],
-        note: `Ookla: ${cell.d} Mbps down / ${cell.u} Mbps up, ${cell.lat}ms latency (${cell.tests} tests)`,
+    if (!cache || Object.keys(cache).length === 0) {
+      console.error('[cell] OOKLA_CELLS empty, keys:', Object.keys(cache || {}).length)
+    } else {
+      const qk9 = latLonToQuadkey9(lat, lng)
+      const cell = cache[qk9]
+      if (cell && cell.tests > 0) {
+        const score = cell.tier >= 5 ? 'excellent' : cell.tier >= 4 ? 'good' : cell.tier >= 3 ? 'fair' : 'poor'
+        return {
+          score, carriers: [],
+          note: `Ookla: ${cell.d} Mbps down / ${cell.u} Mbps up, ${cell.lat}ms latency (${cell.tests} tests)`,
+        }
+      } else {
+        console.error(`[cell] qk9=${qk9} lat=${lat} lng=${lng} cell=${JSON.stringify(cell)} cacheKeys=${Object.keys(cache).slice(0,3)}`)
       }
     }
-  } catch { /* Ookla optional */ }
+  } catch (e: unknown) {
+    console.error('[cell] Ookla error:', String(e))
+  }
 
   // ── Source 2: Google Places density proxy (fallback) ──
   const apiKey = process.env.GOOGLE_PLACES_API_KEY
@@ -303,4 +311,9 @@ export async function GET(request: NextRequest) {
     peakSeason: month >= 6 && month <= 9,
     bigRigFilter: bigRigOnly,
   })
+}
+
+// Debug endpoint
+export async function HEAD(request: NextRequest) {
+  return new Response(null, { status: 200 })
 }
