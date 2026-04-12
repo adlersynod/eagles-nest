@@ -15,25 +15,7 @@ type PlaceResult = {
   lng?: number
 }
 
-// Google Places New API supports type filtering via includedType
-const SEARCH_CONFIG: Record<string, { query: string; includedType?: string; localQuery?: string }> = {
-  attractions: {
-    query: 'tourist attractions',
-    includedType: 'tourist_attraction',
-    localQuery: 'neighborhood park OR local bar OR weird museum OR food cart OR hidden gem OR local viewpoint',
-  },
-  restaurants: {
-    query: 'restaurants',
-    includedType: 'restaurant',
-    localQuery: 'local restaurant OR food cart pod OR dive bar OR neighborhood cafe OR ethnic restaurant',
-  },
-  parks: {
-    // Query specifically for large-rig parks (Brinkley 4100 = 45' 11")
-    query: 'large rig RV park 45 foot sites',
-    includedType: 'campground',
-  },
-}
-
+// ─── Chain detection ─────────────────────────────────────────────────────────
 const CHAIN_KEYWORDS = [
   'starbucks', "mcdonald's", 'olive garden', 'cheesecake factory',
   'walmart', 'target', 'costco', 'hilton', 'marriott', 'holiday inn',
@@ -42,39 +24,147 @@ const CHAIN_KEYWORDS = [
   'subway', 'panda express', 'chipotle', 'dominos pizza', 'pizza hut',
   'kfc', 'taco bell', 'panera bread', 'dunkin', 'dairy queen',
   'best western', 'sheraton', 'westin', 'hyatt', 'radisson',
+  'hampton inn', 'comfort inn', 'sleep inn', 'econolodge', 'motel 6',
 ]
 
-function isChainPlace(name: string): boolean {
+function isChain(name: string): boolean {
   const lower = name.toLowerCase()
   return CHAIN_KEYWORDS.some(kw => lower.includes(kw))
 }
 
-function demoteResults(places: Record<string, unknown>[]): Record<string, unknown>[] {
-  // Score each place: fewer reviews + non-chain + unique type = more "local"
-  const CHAIN_KEYWORDS = ['starbucks', 'mcdonald', 'subway', 'chipotle', 'olive garden',
-    'cheesecake factory', 'applebee', 'tgi friday', 'denny', 'ihop', 'panera',
-    'dunkin', 'wendy', 'burger king', 'kfc', 'pizza hut', 'domino', ' papa john',
-    'five guys', 'shake shack', 'in-n-out', 'chick-fil-a', 'costco', 'walmart',
-    'target', 'ross', 'safeway', 'kroger', ' CVS ', 'walgreens', 'bank of america',
-    'chase bank', 'wells fargo', 'hertz', 'avis', 'enterprise rent']
+// ─── Geocode a city to lat/lng ───────────────────────────────────────────────
+async function geocodeCity(city: string, apiKey: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(city + ', USA')}&key=${apiKey}`
+    )
+    const data = await res.json()
+    const loc = data?.results?.[0]?.geometry?.location
+    if (loc) return { lat: loc.lat, lng: loc.lng }
+  } catch { /* ignore */ }
+  return null
+}
+
+// ─── Nearby Search for truly local results (ranked by distance) ───────────────
+const LOCAL_TYPES: Record<string, string[]> = {
+  attractions: ['tourist_attraction', 'museum', 'art_gallery', 'park', 'landmark',
+                 'library', 'bookstore', 'brewery', 'bar', 'night_club'],
+  restaurants: ['restaurant', 'cafe', 'bakery', 'bar', 'food_court', 'meal_takeaway'],
+  parks: ['campground', 'rv_park', 'park'],
+}
+
+async function nearbySearch(
+  lat: number,
+  lng: number,
+  types: string[],
+  apiKey: string,
+  isLocal: boolean
+): Promise<Record<string, unknown>[]> {
+  const radiusMeters = 12000 // 12km radius
+
+  // Try each type until we get results
+  for (const includedType of types) {
+    try {
+      const body: Record<string, unknown> = {
+        locationBias: {
+          circle: { center: { latitude: lat, longitude: lng }, radius: radiusMeters },
+        },
+        includedType,
+        languageCode: 'en',
+        maxResultCount: 16,
+      }
+
+      const res = await fetch(
+        `https://places.googleapis.com/v1/places:searchNearby`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': apiKey,
+            'X-Goog-FieldMask': [
+              'places.name', 'places.displayName', 'places.rating',
+              'places.primaryType', 'places.types', 'places.location',
+              'places.formattedAddress', 'places.googleMapsUri',
+            ].join(','),
+          },
+          body: JSON.stringify(body),
+        }
+      )
+
+      if (res.ok) {
+        const data = await res.json()
+        const places = data.places || []
+        if (places.length > 0) return places
+      }
+    } catch { /* try next type */ }
+  }
+  return []
+}
+
+// ─── Score & demote chains / tourist-heavy places ─────────────────────────────
+function scorePlaces(places: Record<string, unknown>[], isLocal: boolean): Record<string, unknown>[] {
+  if (!isLocal) return places
 
   return places
-    .map((place) => {
-      const reviewCount = (place.reviews as Array<{ originalRatingCount?: { value?: number } }> | undefined)?.[0]?.originalRatingCount?.value ?? 0
-      const displayName = (place.displayName as { text: string } | null)?.text || ''
-      const primaryType = (place.primaryType as string || '').toLowerCase()
-      const isChain = CHAIN_KEYWORDS.some(k => displayName.toLowerCase().includes(k))
-      // Local score: lower is better for "local gems"
-      // Penalize: chains (+500), very high reviews (+200), chain types (+100)
-      let score = 0
-      if (isChain) score += 500
-      if (reviewCount > 300) score += 200
-      else if (reviewCount > 100) score += 50
-      if (['restaurant', 'cafe', 'coffee shop', 'fast food'].includes(primaryType) && isChain) score += 100
+    .map(place => {
+      const name = (place.displayName as { text: string } | null)?.text || String(place.name || '')
+      const primaryType = String(place.primaryType || '')
+      const chain = isChain(name)
+      // Non-chain + unique local types score best
+      const typeBonus =
+        ['brewery', 'winery', 'art_gallery', 'museum', 'bookstore',
+         'farmers_market', 'food_truck', 'bbq', 'seafood_market'].includes(primaryType) ? -200 :
+        ['park', 'beach', 'trail', ' viewpoint'].includes(primaryType) ? -150 :
+        ['bar', 'night_club', 'lounge'].includes(primaryType) ? -100 : 0
+      const score = (chain ? 400 : 0) + typeBonus
       return { place, score }
     })
     .sort((a, b) => a.score - b.score)
     .map(({ place }) => place)
+}
+
+// ─── Map raw place → PlaceResult ─────────────────────────────────────────────
+function mapPlace(place: Record<string, unknown>, apiKey: string): PlaceResult {
+  const name = (place.displayName as { text: string } | null)?.text || String(place.name || '')
+  const placeId = String(place.name || '')
+  const location = place.location as { latitude: number; longitude: number } | undefined
+  const photos = (place.photos as Array<{ name: string }>) || []
+  const photoName = photos[0]?.name
+  const photoUrl = photoName
+    ? `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=400&key=${apiKey}`
+    : null
+  const mapUrl = String(place.googleMapsUri || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`)
+
+  return {
+    id: placeId,
+    name,
+    rating: (place.rating as number | null) ?? null,
+    reviewCount: null,
+    priceLevel: null,
+    types: (place.types as string[]) || [],
+    primaryType: String(place.primaryType || ''),
+    photoUrl,
+    mapUrl,
+    address: String(place.formattedAddress || ''),
+    lat: location?.latitude,
+    lng: location?.longitude,
+  }
+}
+
+// ─── Text search (fallback / for popular mode) ────────────────────────────────
+const SEARCH_CONFIG: Record<string, { query: string; includedType?: string; localQuery?: string }> = {
+  attractions: {
+    query: 'tourist attractions and things to do',
+    localQuery: 'quirky museum neighborhood bar local park food cart local bookstore art gallery brewery farmers market',
+  },
+  restaurants: {
+    query: 'restaurants and dining',
+    localQuery: 'local restaurant food cart brewery winery neighborhood cafe ethnic food dive bar bbq',
+  },
+  parks: {
+    query: 'large rig RV park 45 foot campsite',
+    includedType: 'campground',
+  },
 }
 
 export async function GET(request: NextRequest) {
@@ -101,97 +191,80 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Search service misconfigured.' }, { status: 500 })
   }
 
-  const config = SEARCH_CONFIG[type]
   const isLocal = mode === 'local'
-  const textQuery = isLocal && config.localQuery
-    ? `${citySanitized} ${config.localQuery}`
-    : `${citySanitized} ${config.query}`
+  const config = SEARCH_CONFIG[type]
+  const fieldMask = [
+    'places.name', 'places.displayName', 'places.rating', 'places.priceLevel',
+    'places.types', 'places.primaryType', 'places.photos', 'places.formattedAddress',
+    'places.googleMapsUri', 'places.location',
+  ].join(',')
 
   try {
-    const body: Record<string, unknown> = {
-      textQuery,
-      languageCode: 'en',
-      maxResultCount: isLocal ? 16 : 8,
-    }
+    let places: Record<string, unknown>[] = []
 
-    if (config.includedType) {
-      body.includedType = config.includedType
-    }
-
-    const fieldMask = [
-      'places.name', 'places.displayName', 'places.rating', 'places.priceLevel',
-      'places.types', 'places.primaryType', 'places.photos', 'places.formattedAddress',
-      'places.googleMapsUri', 'places.location',
-      ...(isLocal ? ['places.reviews'] : []),
-    ].join(',')
-
-    const searchRes = await fetch(
-      `https://places.googleapis.com/v1/places:searchText`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': fieldMask,
-        },
-        body: JSON.stringify(body),
-      }
-    )
-
-    if (!searchRes.ok) {
-      const err = await searchRes.json().catch(() => ({}))
-      console.error('Google Places error:', err)
-      return NextResponse.json({ error: 'Search service unavailable.' }, { status: 502 })
-    }
-
-    const searchData = await searchRes.json()
-    let places = searchData.places || []
-
-    // Demote chain/high-review-count results in local mode
     if (isLocal) {
-      places = demoteResults(places)
+      // ── LOCAL MODE: Nearby Search (distance-ranked, truly local) ──
+      const coords = await geocodeCity(citySanitized, apiKey)
+      if (coords) {
+        const types = LOCAL_TYPES[type] || LOCAL_TYPES.attractions
+        const nearby = await nearbySearch(coords.lat, coords.lng, types, apiKey, true)
+        if (nearby.length > 0) {
+          places = scorePlaces(nearby, true)
+        }
+      }
+
+      // Fallback to text search if Nearby failed
+      if (places.length === 0) {
+        const textQuery = `${citySanitized} ${config.localQuery}`
+        const textRes = await fetch(
+          `https://places.googleapis.com/v1/places:searchText`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': fieldMask },
+            body: JSON.stringify({ textQuery, languageCode: 'en', maxResultCount: 16 }),
+          }
+        )
+        if (textRes.ok) {
+          const textData = await textRes.json()
+          places = scorePlaces(textData.places || [], true)
+        }
+      }
+    } else {
+      // ── POPULAR MODE: Text search ranked by prominence ──
+      const textQuery = `${citySanitized} ${config.query}`
+      const body: Record<string, unknown> = {
+        textQuery,
+        languageCode: 'en',
+        maxResultCount: 8,
+      }
+      if (config.includedType) body.includedType = config.includedType
+
+      const textRes = await fetch(
+        `https://places.googleapis.com/v1/places:searchText`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': fieldMask },
+          body: JSON.stringify(body),
+        }
+      )
+
+      if (!textRes.ok) {
+        const err = await textRes.json().catch(() => ({}))
+        console.error('Google Places error:', err)
+        return NextResponse.json({ error: 'Search service unavailable.' }, { status: 502 })
+      }
+
+      const textData = await textRes.json()
+      places = textData.places || []
     }
 
-    const results: PlaceResult[] = places.slice(0, 8).map((place: Record<string, unknown>) => {
-      const placeId = String(place.name || '')
-      const displayName = (place.displayName as { text: string } | null)?.text || placeId
-      const rating = (place.rating as number | null) ?? null
-      const priceLevel = (place.priceLevel as number | null) ?? null
-      const types = (place.types as string[]) || []
-      const primaryType = String(place.primaryType || types[0] || '')
-      const address = String(place.formattedAddress || '')
-      const photos = (place.photos as Array<{ name: string }>) || []
-      const photoName = photos[0]?.name
-      const photoUrl = photoName
-        ? `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=400&key=${apiKey}`
-        : null
-      const reviews = place.reviews as Array<{ originalRatingCount?: { value?: number } }> | undefined
-      const reviewCount = reviews?.[0]?.originalRatingCount?.value ?? null
+    const results: PlaceResult[] = places.slice(0, 8).map(p => mapPlace(p, apiKey))
 
-      const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayName)}&zoom=15`
-      const location = place.location as { latitude: number; longitude: number } | undefined
-
-      return {
-        id: placeId,
-        name: displayName,
-        rating,
-        reviewCount,
-        priceLevel,
-        types,
-        primaryType,
-        photoUrl,
-        mapUrl,
-        address,
-        lat: location?.latitude,
-        lng: location?.longitude,
-      }
-    })
-
-    // Fire-and-forget usage tracker — doesn't block response
+    // Usage tracker
     fetch(new URL('/api/monitor', process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000').toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-    }).catch(() => {}) // intentionally ignored
+    }).catch(() => {})
 
     return NextResponse.json({ results, city, mode })
   } catch (error) {
