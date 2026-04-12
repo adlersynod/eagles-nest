@@ -27,6 +27,7 @@ type CampgroundResult = {
   campendium?: {
     url: string; reviewCount: number; summary: string
     cellRating: string; pullThrough: boolean; levelSites: boolean
+    officialUrl?: string; bookingType?: string
   }
 }
 
@@ -223,6 +224,113 @@ async function fetchNearbyServices(lat: number, lng: number, apiKey: string) {
   }
 }
 
+
+// ── Campendium Campground Search ───────────────────────────────────────────
+async function fetchCampendiumCampgrounds(city: string): Promise<CampgroundResult[]> {
+  const cleanCity = city.replace(/,/g, '').trim()
+  const queryVariants = [
+    cleanCity + ' campground',
+    cleanCity + ' rv park',
+    cleanCity.split(' ')[0] + ' campground',
+  ]
+
+  let allResults: any[] = []
+
+  for (const query of queryVariants) {
+    try {
+      const res = await fetch(
+        `https://www.campendium.com/search.json?q=${encodeURIComponent(query)}`,
+        { headers: { 'User-Agent': 'EaglesNest/1.0', Accept: 'application/json' }, signal: AbortSignal.timeout(6000) }
+      )
+      if (!res.ok) continue
+      const data = await res.json()
+      const results = data?.[0]?.results || []
+      for (const r of results) {
+        if (r.type === 'campground' && !allResults.some(a => a.url === r.url)) {
+          allResults.push(r)
+        }
+      }
+    } catch { continue }
+    if (allResults.length > 0) break
+  }
+
+  if (allResults.length === 0) return []
+
+  const limited = allResults.slice(0, 6)
+  const enriched = await Promise.all(limited.map(async (r) => {
+    try {
+      const slug = r.url.replace('https://www.campendium.com/', '').replace(/^\//, '')
+      const detailRes = await fetch(`https://www.campendium.com/${slug}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', Accept: 'text/html' },
+        signal: AbortSignal.timeout(8000),
+      })
+      if (!detailRes.ok) return null
+      const html = await detailRes.text()
+
+      const ratingMatch = html.match(/content=["']([\d.]+)["'][^>]*itemprop=["']ratingvalue["']/i)
+                        || html.match(/itemprop=["']ratingvalue["'][^>]*content=["']([\d.]+)["']/i)
+      const reviewCountMatch = html.match(/content=["']([\d]+)["'][^>]*itemprop=["']reviewCount["']/i)
+                            || html.match(/itemprop=["']reviewCount["'][^>]*content=["']([\d]+)["']/i)
+      const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null
+      const reviewCount = reviewCountMatch ? parseInt(reviewCountMatch[1]) : 0
+
+      const pullThrough = /pull[\\s-]?through/i.test(html)
+      const levelSites = /level\\s*(?:sites?|pads?|spots?)/i.test(html)
+
+      // Extract official website link
+      const officialUrlMatch = html.match(/id=["']official-website-link["'][^>]+href=["']([^"']+)["']/i)
+                             || html.match(/href=["'](https?:\/\/[^"']+)["'][^>]+id=["']official-website-link["']/i)
+      const officialUrl = officialUrlMatch ? officialUrlMatch[1] : undefined
+
+      // Extract booking_type from placeDiscoveryProperties JSON blob
+      let bookingType: string | undefined
+      const propMatch = html.match(/window\\.placeDiscoveryProperties\\s*=\\s*JSON\\.parse\\(`([^`]+)`)/)
+      if (propMatch) {
+        try { bookingType = JSON.parse(propMatch[1]).booking_type } catch { /* ignore */ }
+      }
+
+      const priceTierMatch = html.match(/place_price_tier["']:\\s*["']([^"']+)["']/i)
+      const priceMap: Record<string, string> = { '$': 'Under $30', '$$': '$30-$60', '$$$': '$60-$100', '$$$$': '$100+' }
+      const price = priceTierMatch ? priceMap[priceTierMatch[1]] || priceTierMatch[1] : null
+
+      let lat: number | undefined, lng: number | undefined
+      const latMatch = html.match(/lat["']:\\s*([\d.-]+)/i)
+      const lngMatch = html.match(/lng["']:\\s*([\d.-]+)/i)
+      if (latMatch && lngMatch) {
+        lat = parseFloat(latMatch[1]); lng = parseFloat(lngMatch[1])
+      }
+
+      return {
+        name: r.title.split(' - ')[0].trim(),
+        rating,
+        price,
+        amenities: [],
+        photoUrl: null,
+        bookingUrl: officialUrl || undefined,
+        mapUrl: lat && lng ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}` : null,
+        lat,
+        lng,
+        vacancyStatus: 'unknown' as const,
+        vacancyNote: '',
+        bigRigScore: 3.0,
+        bigRigNotes: [],
+        campendium: {
+          url: r.url,
+          reviewCount,
+          summary: '',
+          cellRating: '',
+          pullThrough,
+          levelSites,
+          officialUrl,
+          bookingType,
+        },
+      }
+    } catch { return null }
+  }))
+
+  return enriched.filter(Boolean) as CampgroundResult[]
+}
+
 // ── Campendium Reviews ────────────────────────────────────────────────────────
 const campendiumCache: Record<string, CampgroundResult['campendium']> = {}
 
@@ -245,18 +353,31 @@ async function fetchCampendiumReview(campName: string): Promise<CampgroundResult
     if (!detailRes.ok) return undefined
     const detailHtml = await detailRes.text()
 
-    const reviewMatch = detailHtml.match(/(\d+)\s*reviews?/i)
+    const reviewMatch = detailHtml.match(/(\d+)\\s*reviews?/i)
     const reviewCount = reviewMatch ? parseInt(reviewMatch[1]) : 0
-    const cellMatch = detailHtml.match(/cell(?:ular)?\s*(?:signal)?[:\s]*(\d(?:\/\d)?(?:\/5)?)/i)
+    const cellMatch = detailHtml.match(/cell(?:ular)?\\s*(?:signal)?[:\\s]*(\d(?:\/\d)?(?:\/5)?)/i)
     const cellRating = cellMatch ? cellMatch[1] : ''
-    const pullThrough = /pull[\s-]?through/i.test(detailHtml)
-    const levelSites = /level\s*(?:sites?|pads?|spots?)/i.test(detailHtml)
+    const pullThrough = /pull[\\s-]?through/i.test(detailHtml)
+    const levelSites = /level\\s*(?:sites?|pads?|spots?)/i.test(detailHtml)
     const snippetMatch = detailHtml.match(/<p[^>]*>([^<]{50,200})<\/p>/)
     const summary = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').trim() : ''
+
+    // Extract official website link
+    const officialUrlMatch = detailHtml.match(/id=["']official-website-link["'][^>]+href=["']([^"']+)["']/i)
+                           || detailHtml.match(/href=["'](https?:\/\/[^"']+)["'][^>]+id=["']official-website-link["']/i)
+    const officialUrl = officialUrlMatch ? officialUrlMatch[1] : undefined
+
+    // Extract booking_type from placeDiscoveryProperties
+    let bookingType: string | undefined
+    const propMatch = detailHtml.match(/window\\.placeDiscoveryProperties\\s*=\\s*JSON\\.parse\\(`([^`]+)`)/)
+    if (propMatch) {
+      try { bookingType = JSON.parse(propMatch[1]).booking_type } catch { /* ignore */ }
+    }
 
     const result: CampgroundResult['campendium'] = {
       url: `https://www.campendium.com${slugMatch[0]}`,
       reviewCount, summary: summary.substring(0, 200), cellRating, pullThrough, levelSites,
+      officialUrl, bookingType,
     }
     campendiumCache[campName] = result
     return result
@@ -280,36 +401,123 @@ export async function GET(request: NextRequest) {
   const enrich = searchParams.get('enrich') !== 'false'
   const debug = searchParams.get('debug') === '1'
 
+  // Filter + sort params
+  const minBigRigScore = parseFloat(searchParams.get('minBigRigScore') || '1')
+  const minCellSignal = searchParams.get('minCellSignal') || 'any'
+  const pullThrough = searchParams.get('pullThrough') === 'true'
+  const levelSites = searchParams.get('levelSites') === 'true'
+  const sortBy = searchParams.get('sortBy') || 'bigRigScore'
+
   if (!city || city.length > 200) return NextResponse.json({ error: 'Missing city parameter.' }, { status: 400 })
-  const citySanitized = city.replace(/[^a-zA-Z0-9\s\-\.,']/g, '').trim()
-  let results = await fetchRecreationGov(citySanitized)
-  if (bigRigOnly) results = results.filter(r => r.bigRigScore >= 3.0)
+  const citySanitized = city.replace(/[^a-zA-Z0-9\\s\-\\.,']/g, '').trim()
+
+  // Fetch from Recreation.gov + Campendium in parallel
+  const [recreationResults, campendiumResults]: [CampgroundResult[], CampgroundResult[]] = await Promise.all([
+    fetchRecreationGov(citySanitized),
+    fetchCampendiumCampgrounds(citySanitized),
+  ])
+
+  // Merge and deduplicate
+  const seen = new Set<string>()
+  let allResults: CampgroundResult[] = []
+  for (const r of [...recreationResults, ...campendiumResults]) {
+    const key = r.name.toLowerCase().replace(/\\s+/g, '')
+    if (!seen.has(key)) { seen.add(key); allResults.push(r) }
+  }
+
+  // ── Try Nearby Cities ─────────────────────────────────────────────────────────
+  let nearbyCities: string[] = []
+  if (allResults.length < 3) {
+    const NEARBY_MAP: Record<string, string[]> = {
+      'mount hood': ['Government Camp', 'Welches', 'Zigzag', 'Sandy'],
+      'portland': ['Estacada', 'Oregon City', 'Vancouver', 'Mount Hood'],
+      'seattle': ['Tacoma', 'Everett', 'Bellevue', 'Issaquah'],
+      'eugene': ['Cottage Grove', 'Oakridge', 'Lowell'],
+      'bend': ['Sunriver', 'Sisters', 'La Pine', 'Redmond'],
+      'ashland': ['Medford', 'Grants Pass', 'Phoenix'],
+      'olympic': ['Port Townsend', 'Sequim', 'Forks'],
+      'mt hood': ['Government Camp', 'Welches', 'Zigzag', 'Sandy'],
+    }
+    const cityLower = citySanitized.toLowerCase()
+    for (const [key, cities] of Object.entries(NEARBY_MAP)) {
+      if (cityLower.includes(key)) {
+        nearbyCities = cities
+        break
+      }
+    }
+  }
+
+  if (bigRigOnly) allResults = allResults.filter(r => r.bigRigScore >= 3.0)
+
+  // Apply client filters
+  if (minBigRigScore > 1) allResults = allResults.filter(r => r.bigRigScore >= minBigRigScore)
+  if (pullThrough) allResults = allResults.filter(r => r.campendium?.pullThrough)
+  if (levelSites) allResults = allResults.filter(r => r.campendium?.levelSites)
 
   if (enrich) {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY
     if (apiKey) {
-      results = await Promise.all(
-        results.slice(0, 6).map(async (camp) => {
-          if (camp.lat != null && camp.lng != null) {
-            const [services, cellSignal]: [Record<string, unknown>, CampgroundResult['cellSignal']] = await Promise.all([
-              fetchNearbyServices(camp.lat, camp.lng, apiKey),
-              fetchCellSignal(camp.lat, camp.lng),
-            ])
-            const campendium = await fetchCampendiumReview(camp.name)
-            return { ...camp, nearestServices: services, cellSignal, campendium }
-          }
-          return camp
-        })
+      // Enrich ALL results in parallel batches of 6
+      const chunkSize = 6
+      const chunks: CampgroundResult[][] = []
+      for (let i = 0; i < allResults.length; i += chunkSize) {
+        chunks.push(allResults.slice(i, i + chunkSize))
+      }
+      const enrichedChunks = await Promise.all(
+        chunks.map(chunk =>
+          Promise.all(chunk.map(async (camp) => {
+            if (camp.lat != null && camp.lng != null) {
+              try {
+                const [services, cellSignal]: [Record<string, unknown>, CampgroundResult['cellSignal']] = await Promise.all([
+                  fetchNearbyServices(camp.lat, camp.lng, apiKey),
+                  fetchCellSignal(camp.lat, camp.lng),
+                ])
+                const campendium = await fetchCampendiumReview(camp.name)
+                return { ...camp, nearestServices: services, cellSignal, campendium }
+              } catch { return camp }
+            }
+            return camp
+          }))
+        )
       )
+      allResults = enrichedChunks.flat()
+
+      // Apply cell signal filter after enrichment
+      if (minCellSignal !== 'any') {
+        const signalOrder = ['poor', 'fair', 'good', 'excellent']
+        const minIdx = signalOrder.indexOf(minCellSignal)
+        if (minIdx >= 0) {
+          allResults = allResults.filter(r => {
+            const score = r.cellSignal?.score || 'unknown'
+            if (score === 'unknown') return true
+            return signalOrder.indexOf(score) >= minIdx
+          })
+        }
+      }
     }
   }
 
+  // Sort
+  const cellSignalOrder: Record<string, number> = { excellent: 4, good: 3, fair: 2, poor: 1, unknown: 0 }
+  allResults.sort((a, b) => {
+    if (sortBy === 'cellSignal') return (cellSignalOrder[b.cellSignal?.score || 'unknown'] || 0) - (cellSignalOrder[a.cellSignal?.score || 'unknown'] || 0)
+    if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0)
+    if (sortBy === 'price') {
+      const priceA = a.price ? parseFloat(a.price.replace(/[^0-9.]/g, '')) : 999
+      const priceB = b.price ? parseFloat(b.price.replace(/[^0-9.]/g, '')) : 999
+      return priceA - priceB
+    }
+    return (b.bigRigScore || 0) - (a.bigRigScore || 0)
+  })
+
   const month = new Date().getMonth() + 1
   return NextResponse.json({
-    results, city: citySanitized,
+    results: allResults,
+    city: citySanitized,
     vacancyRisk: month >= 6 && month <= 9 ? 'seasonal' : 'low',
     peakSeason: month >= 6 && month <= 9,
     bigRigFilter: bigRigOnly,
+    nearbyCities: nearbyCities.length > 0 ? nearbyCities : undefined,
   })
 }
 

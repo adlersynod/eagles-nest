@@ -60,6 +60,14 @@ type CampgroundResult = {
   }
 }
 
+type AlertPrefs = {
+  enabled: boolean
+  vacancyChange: boolean
+  priceDrop: boolean
+  cellBelow: string
+  bigRigBelow: number
+}
+
 type SavedPark = {
   id: string
   name: string
@@ -69,6 +77,9 @@ type SavedPark = {
   lastKnownAvailable: number | null
   lastChecked: string | null
   addedAt: string
+  alertPrefs: AlertPrefs
+  lastCellScore?: string
+  lastBigRigScore?: number
 }
 
 const TRAVEL_RISK_LABELS = {
@@ -379,13 +390,17 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHe
             )}
             {cell && cell.score !== 'unknown' && (
               <span className={`enrich-chip cell-signal-${cell.score}`} title={cell.note}>
-                {cell.score === 'excellent' ? '📶 Excellent' :
-                 cell.score === 'good' ? '📶 Good' :
-                 cell.score === 'fair' ? '📶 Fair' : '📶 Poor'}{cell.carriers?.length ? ` (${cell.carriers.join('/')})` : ''}
+                {cell.score === 'excellent' ? '📶 Excellent cell' :
+                 cell.score === 'good' ? '📶 Good cell' :
+                 cell.score === 'fair' ? '📶 Fair cell' : '📶 Poor cell'}
+                {cell.note ? (() => {
+                  const m = cell.note.match(/FCC_ASR:(\d+):/)
+                  return m ? ` · ${m[1]} towers` : ` · ${cell.note}`
+                })() : ''}
               </span>
             )}
             {cell && cell.score === 'unknown' && (
-              <span className="enrich-chip enrich-chip-muted" title="Cell data unavailable">📶 Cell data unavailable</span>
+              <span className="enrich-chip enrich-chip-muted" title="Cell data unavailable">📶 Unknown cell signal</span>
             )}
           </div>
         )}
@@ -941,6 +956,13 @@ export default function Home() {
   const [walkOrigin, setWalkOrigin] = useState<{ lat: number; lng: number; name: string } | null>(null)
   // Big Rig Scout filter
   const [bigRigFilter, setBigRigFilter] = useState(false)
+  // Advanced campground filters
+  const [minBigRigScore, setMinBigRigScore] = useState('1')
+  const [minCellSignal, setMinCellSignal] = useState('any')
+  const [pullThrough, setPullThrough] = useState(false)
+  const [levelSites, setLevelSites] = useState(false)
+  const [sortBy, setSortBy] = useState('bigRigScore')
+  const [showFilters, setShowFilters] = useState(false)
   // Saved Parks for alerts
   const [savedParks, setSavedParks] = useState<SavedPark[]>([])
   // Per-tab search mode: 'popular' or 'local'
@@ -987,7 +1009,18 @@ export default function Home() {
     })
     const d = await res.json()
     if (d.ok) { setSavedParks(prev => [...prev, d.park]) }
-    return d
+  }
+
+  const updateAlertPrefs = async (id: string, alertPrefs: AlertPrefs) => {
+    const res = await fetch('/api/saved-parks', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, alertPrefs }),
+    })
+    if (res.ok) {
+      const d = await res.json()
+      setSavedParks(prev => prev.map(p => p.id === id ? { ...p, alertPrefs: d.park.alertPrefs } : p))
+    }
   }
 
   const removePark = async (id: string) => {
@@ -1041,7 +1074,7 @@ export default function Home() {
       // Fetch campground vacancy data
       setCampgroundsLoading(true)
       try {
-        const cgRes = await fetch(`/api/campgrounds?city=${encodeURIComponent(dest)}&bigRig=${bigRigFilter}`)
+        const cgRes = await fetch(`/api/campgrounds?city=${encodeURIComponent(dest)}&bigRig=${bigRigFilter}&minBigRigScore=${minBigRigScore}&minCellSignal=${minCellSignal}&pullThrough=${pullThrough}&levelSites=${levelSites}&sortBy=${sortBy}`)
         const cgData = await cgRes.json()
         if (cgRes.ok && cgData.results) {
           setCampgrounds(cgData.results)
@@ -1147,15 +1180,64 @@ export default function Home() {
                   <span className="countdown-badge">⏱️ {daysUntilTrip} days until your trip</span>
                 </div>
               )}
-              {/* Big Rig Scout filter */}
-              <div className="big-rig-filter-row">
-                <span className="big-rig-filter-label">🚐 Big Rig Filter:</span>
-                <button
-                  className={`mode-toggle-btn ${bigRigFilter ? 'active' : ''}`}
-                  onClick={() => { setBigRigFilter(v => !v); setTimeout(() => handleSearch(), 0) }}
-                >
-                  {bigRigFilter ? '🚐 45\'+ Sites Only' : 'Show All Parks'}
-                </button>
+              {/* ── Advanced Filter Bar ── */}
+              <div className="parks-filter-bar">
+                <div className="filter-bar-row">
+                  <span className="filter-bar-label">🚐 Min Score:</span>
+                  <select
+                    className="filter-select"
+                    value={minBigRigScore}
+                    onChange={e => { setMinBigRigScore(e.target.value); setBigRigFilter(e.target.value !== '1'); setTimeout(() => handleSearch(), 0) }}
+                  >
+                    <option value="1">Any</option>
+                    <option value="3">≥ 3.0 — Budget</option>
+                    <option value="3.5">≥ 3.5 — Good</option>
+                    <option value="4">≥ 4.0 — Recommended</option>
+                    <option value="4.5">≥ 4.5 — Premium</option>
+                  </select>
+
+                  <span className="filter-bar-label">📶 Cell:</span>
+                  <select
+                    className="filter-select"
+                    value={minCellSignal}
+                    onChange={e => { setMinCellSignal(e.target.value); setTimeout(() => handleSearch(), 0) }}
+                  >
+                    <option value="any">Any</option>
+                    <option value="poor">≥ Poor</option>
+                    <option value="fair">≥ Fair</option>
+                    <option value="good">≥ Good</option>
+                    <option value="excellent">Excellent Only</option>
+                  </select>
+
+                  <span className="filter-bar-label">Sort:</span>
+                  <select
+                    className="filter-select"
+                    value={sortBy}
+                    onChange={e => { setSortBy(e.target.value); setTimeout(() => handleSearch(), 0) }}
+                  >
+                    <option value="bigRigScore">🚐 Big Rig</option>
+                    <option value="cellSignal">📶 Cell</option>
+                    <option value="rating">⭐ Rating</option>
+                    <option value="price">💲 Price</option>
+                  </select>
+                </div>
+                <div className="filter-bar-row filter-bar-row-2">
+                  <button
+                    className={`filter-toggle-btn ${pullThrough ? 'active' : ''}`}
+                    onClick={() => { setPullThrough(v => !v); setTimeout(() => handleSearch(), 0) }}
+                  >
+                    🔄 Pull-Through
+                  </button>
+                  <button
+                    className={`filter-toggle-btn ${levelSites ? 'active' : ''}`}
+                    onClick={() => { setLevelSites(v => !v); setTimeout(() => handleSearch(), 0) }}
+                  >
+                    🏗️ Level Pads
+                  </button>
+                  <span className="filter-result-count">
+                    {campgrounds.length > 0 ? `${campgrounds.length} parks` : ''}
+                  </span>
+                </div>
               </div>
               <DateRangePicker
                 startValue={rangeStart}
@@ -1171,34 +1253,91 @@ export default function Home() {
           )}
           {/* Saved Parks for Telegram Alerts */}
           {savedParks.length > 0 && (
-            <details className="saved-parks-panel">
+            <details className="saved-parks-panel" open>
               <summary className="saved-parks-header">
-                🐾 Saved Parks ({savedParks.length}) — Price alerts via Telegram daily at 9 AM
+                🐾 Saved Parks ({savedParks.length}) — Alerts via Telegram daily at 9 AM
               </summary>
               <div className="saved-parks-list">
-                {savedParks.map(park => (
-                  <div key={park.id} className="saved-park-item">
-                    <div className="saved-park-info">
-                      <strong>{park.name}</strong>
-                      <span className="saved-park-meta">
-                        {park.city}
-                        {park.dateRange ? ` · ${park.dateRange.start} → ${park.dateRange.end}` : ''}
-                      </span>
-                      <span className={`saved-park-avail ${park.lastKnownAvailable === null ? 'unknown' : park.lastKnownAvailable > 0 ? 'available' : 'full'}`}>
-                        {park.lastKnownAvailable === null ? '⏳ Not checked yet'
-                          : park.lastKnownAvailable > 0 ? `🟢 ${park.lastKnownAvailable} sites available`
-                          : '🔴 Fully booked'}
-                      </span>
+                {savedParks.map(park => {
+                  const prefs = park.alertPrefs || { enabled: true, vacancyChange: true, priceDrop: true, cellBelow: 'any', bigRigBelow: 1 }
+                  return (
+                    <div key={park.id} className="saved-park-item">
+                      <div className="saved-park-info">
+                        <div className="saved-park-top-row">
+                          <strong>{park.name}</strong>
+                          <label className="alert-master-toggle" title="Enable/disable all alerts for this park">
+                            <input
+                              type="checkbox"
+                              checked={prefs.enabled}
+                              onChange={e => updateAlertPrefs(park.id, { ...prefs, enabled: e.target.checked })}
+                            />
+                            🔔 Alerts {prefs.enabled ? 'ON' : 'OFF'}
+                          </label>
+                        </div>
+                        <span className="saved-park-meta">
+                          {park.city}
+                          {park.dateRange ? ` · ${park.dateRange.start} → ${park.dateRange.end}` : ''}
+                        </span>
+                        <span className={`saved-park-avail ${park.lastKnownAvailable === null ? 'unknown' : park.lastKnownAvailable > 0 ? 'available' : 'full'}`}>
+                          {park.lastKnownAvailable === null ? '⏳ Not checked yet'
+                            : park.lastKnownAvailable > 0 ? `🟢 ${park.lastKnownAvailable} sites available`
+                            : '🔴 Fully booked'}
+                        </span>
+                        {/* Alert preference toggles */}
+                        {prefs.enabled && (
+                          <div className="saved-park-alert-prefs">
+                            <label className={`pref-toggle ${prefs.vacancyChange ? 'active' : ''}`}>
+                              <input
+                                type="checkbox"
+                                checked={prefs.vacancyChange}
+                                onChange={e => updateAlertPrefs(park.id, { ...prefs, vacancyChange: e.target.checked })}
+                              />
+                              🟢 Vacancy changes
+                            </label>
+                            <label className={`pref-toggle ${prefs.priceDrop ? 'active' : ''}`}>
+                              <input
+                                type="checkbox"
+                                checked={prefs.priceDrop}
+                                onChange={e => updateAlertPrefs(park.id, { ...prefs, priceDrop: e.target.checked })}
+                              />
+                              💲 Price drops
+                            </label>
+                            <select
+                              className="pref-select"
+                              value={prefs.cellBelow}
+                              onChange={e => updateAlertPrefs(park.id, { ...prefs, cellBelow: e.target.value })}
+                              title="Alert when cell signal drops below..."
+                            >
+                              <option value="any">📶 Any cell signal</option>
+                              <option value="excellent">📶 ≥ Excellent</option>
+                              <option value="good">📶 ≥ Good</option>
+                              <option value="fair">📶 ≥ Fair</option>
+                            </select>
+                            <select
+                              className="pref-select"
+                              value={prefs.bigRigBelow}
+                              onChange={e => updateAlertPrefs(park.id, { ...prefs, bigRigBelow: Number(e.target.value) })}
+                              title="Alert when Big Rig Score drops below..."
+                            >
+                              <option value={1}>🚐 Any Big Rig Score</option>
+                              <option value={3}>🚐 ≥ 3.0</option>
+                              <option value={3.5}>🚐 ≥ 3.5</option>
+                              <option value={4}>🚐 ≥ 4.0</option>
+                              <option value={4.5}>🚐 ≥ 4.5</option>
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        className="saved-park-remove"
+                        onClick={() => removePark(park.id)}
+                        title="Remove from Saved Parks"
+                      >
+                        ✕
+                      </button>
                     </div>
-                    <button
-                      className="saved-park-remove"
-                      onClick={() => removePark(park.id)}
-                      title="Remove from Saved Parks"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
               <p className="saved-parks-note">📱 Alerts sent to Telegram — make sure EaglesNestAlertBot can message you.</p>
             </details>

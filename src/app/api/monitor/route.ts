@@ -17,6 +17,14 @@ function checkMonthReset() {
 // ── Saved Parks store ───────────────────────────────────────────────────
 const DATA_FILE = path.join(process.cwd(), 'data', 'saved-parks.json')
 
+type AlertPrefs = {
+  enabled: boolean
+  vacancyChange: boolean
+  priceDrop: boolean
+  cellBelow: string
+  bigRigBelow: number
+}
+
 type SavedPark = {
   id: string
   name: string
@@ -26,6 +34,10 @@ type SavedPark = {
   lastKnownAvailable: number | null
   lastChecked: string | null
   addedAt: string
+  alertPrefs: AlertPrefs
+  lastKnownPrice?: string | null
+  lastCellScore?: string | null
+  lastBigRigScore?: number | null
 }
 
 function readStore(): { savedParks: SavedPark[] } {
@@ -102,22 +114,29 @@ export async function GET() {
   const store = readStore()
   const now = new Date().toISOString()
 
+  // Cell signal score order for threshold comparison
+  const CELL_ORDER = ['excellent', 'good', 'fair', 'poor', 'unknown']
+
   for (const park of store.savedParks) {
-    const available = await checkParkAvailability(park)
-    const previously = park.lastKnownAvailable
+    const prefs = park.alertPrefs || { enabled: true, vacancyChange: true, priceDrop: true, cellBelow: 'any', bigRigBelow: 1 }
 
-    checked.push({ name: park.name, available, previously })
+    // Skip entirely if alerts are disabled for this park
+    if (!prefs.enabled) continue
 
-    if (available !== null && available !== previously) {
-      if (previously !== null) {
-        // Status changed — alert
+    // ── Vacancy check ──────────────────────────────────────────────
+    if (prefs.vacancyChange) {
+      const available = await checkParkAvailability(park)
+      const previously = park.lastKnownAvailable
+      checked.push({ name: park.name, available, previously })
+
+      if (available !== null && available !== previously && previously !== null) {
         if (available > 0) {
           alerts.push(
             `🟢 <b>${park.name}</b>\n` +
             `📅 ${park.dateRange ? `${park.dateRange.start} → ${park.dateRange.end}` : 'No dates set'}\n` +
             `🎉 ${available} site${available !== 1 ? 's' : ''} now available!`
           )
-        } else if (previously > 0 && available === 0) {
+        } else if (previously > 0) {
           alerts.push(
             `🔴 <b>${park.name}</b>\n` +
             `📅 ${park.dateRange ? `${park.dateRange.start} → ${park.dateRange.end}` : 'No dates set'}\n` +
@@ -125,14 +144,66 @@ export async function GET() {
           )
         }
       }
-      // Update lastKnownAvailable
       park.lastKnownAvailable = available
       park.lastChecked = now
     }
 
+    // ── Price drop check ──────────────────────────────────────────
+    if (prefs.priceDrop) {
+      try {
+        const searchRes = await fetch(
+          `https://www.recreation.gov/api/search?query=${encodeURIComponent(park.name)}&rows=2`,
+          { headers: { 'User-Agent': 'EaglesNestBot/1.0', Accept: 'application/json' } }
+        )
+        if (searchRes.ok) {
+          const searchData = await searchRes.json()
+          const items = searchData?.results || []
+          const match = items.find((item: Record<string, unknown>) =>
+            park.entityId && String(item.entity_id) === park.entityId ||
+            (item.title as string || '').toLowerCase().includes(park.name.toLowerCase())
+          )
+          if (match) {
+            const priceRange = match.price_range as { amount_max?: number } | null
+            const currentPrice = priceRange?.amount_max ? `$${priceRange.amount_max}` : null
+            if (currentPrice && park.lastKnownPrice && park.lastKnownPrice !== currentPrice) {
+              alerts.push(
+                `💲 <b>${park.name}</b>\n` +
+                `📉 Price changed: ${park.lastKnownPrice} → ${currentPrice}`
+              )
+            }
+            if (currentPrice) park.lastKnownPrice = currentPrice
+          }
+        }
+      } catch { /* skip */ }
+    }
+
+    // ── Cell signal drop check ─────────────────────────────────────
+    if (prefs.cellBelow && prefs.cellBelow !== 'any' && park.lastCellScore) {
+      const thresholdIdx = CELL_ORDER.indexOf(prefs.cellBelow)
+      const currentIdx = CELL_ORDER.indexOf(park.lastCellScore)
+      if (currentIdx >= 0 && currentIdx > thresholdIdx) {
+        // Signal dropped below threshold
+        alerts.push(
+          `📶 <b>${park.name}</b>\n` +
+          `⚠️  Cell signal dropped to ${park.lastCellScore} (below your ${prefs.cellBelow} threshold)`
+        )
+      }
+    }
+
+    // ── Big rig score drop check ───────────────────────────────────
+    if (prefs.bigRigBelow > 1 && park.lastBigRigScore && park.lastBigRigScore < prefs.bigRigBelow) {
+      alerts.push(
+        `🚐 <b>${park.name}</b>\n` +
+        `⚠️  Big Rig Score dropped to ${park.lastBigRigScore} (below your ${prefs.bigRigBelow} threshold)`
+      )
+    }
+
     if (!park.lastChecked) {
       park.lastChecked = now
-      if (available !== null) park.lastKnownAvailable = available
+      if (!park.lastKnownAvailable && prefs.vacancyChange) {
+        const available = await checkParkAvailability(park)
+        park.lastKnownAvailable = available
+      }
     }
   }
 

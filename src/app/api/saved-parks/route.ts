@@ -4,6 +4,14 @@ import path from 'path'
 
 const DATA_FILE = path.join(process.cwd(), 'data', 'saved-parks.json')
 
+export type AlertPrefs = {
+  enabled: boolean
+  vacancyChange: boolean
+  priceDrop: boolean
+  cellBelow: string
+  bigRigBelow: number
+}
+
 export type SavedPark = {
   id: string
   name: string
@@ -13,6 +21,7 @@ export type SavedPark = {
   lastKnownAvailable: number | null
   lastChecked: string | null
   addedAt: string
+  alertPrefs: AlertPrefs
 }
 
 type SavedParksStore = {
@@ -60,6 +69,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       lastKnownAvailable: null,
       lastChecked: null,
       addedAt: new Date().toISOString(),
+      alertPrefs: {
+        enabled: true,
+        vacancyChange: true,
+        priceDrop: true,
+        cellBelow: 'any',
+        bigRigBelow: 1,
+      },
     }
 
     store.savedParks.push(park)
@@ -96,3 +112,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Failed to remove park.' }, { status: 500 })
   }
 }
+
+
+
+
