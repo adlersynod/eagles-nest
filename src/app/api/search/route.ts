@@ -172,7 +172,10 @@ export async function GET(request: NextRequest) {
   const city = searchParams.get('city')
   const type = searchParams.get('type')
   const _rawMode = searchParams.get('mode')
-  const mode: 'local' | 'popular' | 'all' = _rawMode === 'local' || _rawMode === 'all' ? _rawMode as 'local' | 'all' : 'popular'
+
+  // DEBUG: hardforce 'all' mode for testing
+  const _forcedMode = searchParams.get('debug') === 'force_all' ? 'all' : _rawMode
+  const mode: 'local' | 'popular' | 'all' = _forcedMode === 'local' || _forcedMode === 'all' ? _forcedMode as 'local' | 'all' : 'popular'
 
   if (!city || city.length > 200) {
     return NextResponse.json({ error: 'Missing or invalid city parameter.' }, { status: 400 })
