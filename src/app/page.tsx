@@ -822,6 +822,7 @@ function WeatherDisplay({ city }: { city: string }) {
 
 // ── Import Panel ────────────────────────────────────────────────────
 
+
 function ImportPanel() {
   const [file, setFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
@@ -861,8 +862,8 @@ function ImportPanel() {
     a.click()
   }
 
-  const fixGaps = () => {
-    alert("Scouting mid-points for all legs > 300mi... This will find Cheapest/Fastest options near the 250mi mark.")
+  const fixGaps = async () => {
+    setLoading(true)
     const newStops = []
     let modified = false
     
@@ -872,23 +873,30 @@ function ImportPanel() {
         const stop = { ...tripData.stops[i] }
         const prevStop = tripData.stops[i-1]
         
-        if (prevStop && stop.miles > 300) {
+        if (prevStop && stop.miles > 300 && !stop.isAdlerSuggest) {
           modified = true
-          const ratio = 250 / stop.miles
-          const lat = prevStop.lat + (stop.lat - prevStop.lat) * ratio
-          const lng = prevStop.lng + (stop.lng - prevStop.lng) * ratio
-          
-          newStops.push({
-            stopName: `⚠️ Adler Split: ${Math.round(stop.miles)}mi Leg Midpoint`,
-            lat: lat,
-            lng: lng,
-            miles: 250,
-            arrivalDate: prevStop.departureDate,
-            nights: 1,
-            isAdlerSuggest: true,
-            isCityWaypoint: false
-          })
-          
+          try {
+            const scoutRes = await fetch('/api/fix-gap', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ startLat: prevStop.lat, startLng: prevStop.lng, endLat: stop.lat, endLng: stop.lng, distance: stop.miles })
+            })
+            const scoutData = await scoutRes.json()
+            
+            newStops.push({
+              stopName: `🔍 Adler Scout: Split for ${Math.round(stop.miles)}mi Leg`,
+              lat: scoutData.midpoint.lat,
+              lng: scoutData.midpoint.lng,
+              miles: 250,
+              arrivalDate: prevStop.departureDate,
+              nights: 1,
+              isAdlerSuggest: true,
+              suggestions: scoutData.suggestions || [],
+              isCityWaypoint: false
+            })
+          } catch (e) {
+            console.error(e)
+          }
           stop.miles = Math.round(stop.miles - 250)
         }
         newStops.push(stop)
@@ -897,21 +905,43 @@ function ImportPanel() {
     if (modified) {
       setTripData({ ...tripData, stops: newStops, stopCount: newStops.length })
     }
+    setLoading(false)
+  }
+
+  const selectSuggestion = (stopIndex: number, suggestion: any) => {
+    const updatedStops = [...tripData.stops]
+    updatedStops[stopIndex] = {
+      ...updatedStops[stopIndex],
+      stopName: suggestion.name,
+      lat: suggestion.lat,
+      lng: suggestion.lng,
+      url: suggestion.url,
+      isAdlerSuggest: false,
+      suggestions: []
+    }
+    setTripData({ ...tripData, stops: updatedStops })
   }
 
   return (
     <div className="plans-panel">
       <div className="plan-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100vw', maxWidth: '100%', paddingRight: '1rem' }}>
           <h2 className="plan-title">Adler Bridge</h2>
           {tripData && (
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="mode-btn" style={{ background: '#34c759', padding: '6px 12px', fontSize: '12px' }} onClick={downloadGPX}>Download GPX</button>
-              <button className="mode-btn" style={{ background: '#ff9500', padding: '6px 12px', fontSize: '12px' }} onClick={fixGaps}>Fix Gaps</button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="mode-btn" style={{ background: '#34c759', padding: '6px 12px', fontSize: '12px', minWidth: '100px' }} onClick={downloadGPX}>Download GPX</button>
+              <button 
+                className="mode-btn" 
+                style={{ background: '#ff9500', padding: '6px 12px', fontSize: '12px', minWidth: '100px' }} 
+                onClick={fixGaps}
+                disabled={loading}
+              >
+                {loading ? 'Scouting...' : 'Fix Gaps'}
+              </button>
             </div>
           )}
         </div>
-        <p className="plan-subtitle">Import. Fix 300mi Gaps. Export GPX.</p>
+        <p className="plan-subtitle">Import. Scout Gaps. Sync Back.</p>
       </div>
 
       {!tripData && (
@@ -947,7 +977,7 @@ function ImportPanel() {
               const driveAlert = !stop.isAdlerSuggest && stop.miles > 300
               
               return (
-                <div key={i} className={`stop-item ${stop.isAdlerSuggest ? 'adler-suggest' : ''}`}>
+                <div key={i} className={`stop-item ${stop.isAdlerSuggest ? 'adler-suggest' : ''}`} style={stop.isAdlerSuggest ? {border:'1px dashed #ff9500'} : {}}>
                   <div className="stop-main">
                     <span className="stop-num">{i + 1}</span>
                     <div className="stop-info">
@@ -958,6 +988,27 @@ function ImportPanel() {
                     </div>
                     {driveAlert && <span className="warning-badge">⚠️ {stop.miles}mi</span>}
                   </div>
+                  
+                  {stop.isAdlerSuggest && stop.suggestions && (
+                    <div className="scout-suggestions" style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <p style={{ fontSize: '0.75rem', color: '#8a9aaa', margin: '0 0 4px', fontWeight: 600 }}>FASTEST RV PARKS AT 250mi MARK:</p>
+                      {stop.suggestions.map((sug: any, j: number) => (
+                        <div key={j} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{sug.name}</div>
+                            <a href={sug.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: '#007aff', textDecoration: 'underline' }}>View Website</a>
+                          </div>
+                          <button 
+                            className="mode-btn" 
+                            style={{ background: '#34c759', padding: '6px 12px', fontSize: '11px', fontWeight: 700 }}
+                            onClick={() => selectSuggestion(i, sug)}
+                          >
+                            Add
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )
             })}
