@@ -102,31 +102,35 @@ async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
 }
 
 // ── Nearby Services ───────────────────────────────────────────────────────────
+// ── Nearby Services ────────────────────────────────────────────────────────────
 async function fetchNearbyServices(lat: number, lng: number, apiKey: string) {
-  const radius = 15000
   const results: Record<string, { name: string; distanceMi: number } | null> = {
     gasStation: null, groceryStore: null, dumpStation: null,
   }
   try {
-    const body = {
-      locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius } },
-      languageCode: 'en', maxResultCount: 3,
-    }
-    const typeMap = [
-      { type: 'gas_station', key: 'gasStation' as const },
-      { type: 'supermarket', key: 'groceryStore' as const },
-      { type: 'campground', key: 'dumpStation' as const },
+    const searchTypes = [
+      { query: 'gas station near 45.323,-121.905', key: 'gasStation' as const },
+      { query: 'grocery store near 45.323,-121.905', key: 'groceryStore' as const },
+      { query: 'campground near 45.323,-121.905', key: 'dumpStation' as const },
     ]
-    for (const { type, key } of typeMap) {
+    for (let i = 0; i < searchTypes.length; i++) {
+      const { query, key } = searchTypes[i]
+      // Use Text Search — same API format that works in /api/search
       const fieldMask = 'places.displayName,places.location'
-      const res = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+      const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': fieldMask },
-        body: JSON.stringify({ ...body, includedType: type }),
+        body: JSON.stringify({
+          textQuery: query,
+          locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 15000 } },
+          languageCode: 'en',
+          maxResultCount: 1,
+        }),
+        signal: AbortSignal.timeout(6000),
       })
       if (!res.ok) continue
       const data = await res.json()
-      const places: Array<{ displayName?: { text: string }; name?: string; location?: { latitude: number; longitude: number } }> = data.places || []
+      const places = data.places || []
       if (places.length > 0) {
         const top = places[0]
         const name = top.displayName?.text || top.name || ''
@@ -154,37 +158,37 @@ async function fetchCellSignal(lat: number, lng: number): Promise<CampgroundResu
   const apiKey = process.env.GOOGLE_PLACES_API_KEY
   if (!apiKey) return { score: 'unknown', carriers: [], note: 'Cell signal data unavailable' }
 
+  let statusCode = 0; let errMsg = 'unknown'
   try {
-    // Count cafes + restaurants within 5km as population density proxy
-    const nearbyRes = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+    const nearbyRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': 'places.name' },
       body: JSON.stringify({
+        textQuery: 'cafe restaurant',
         locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 5000 } },
-        includedType: 'cafe',
         languageCode: 'en',
         maxResultCount: 10,
       }),
       signal: AbortSignal.timeout(6000),
     })
-
-    if (!nearbyRes.ok) return { score: 'unknown', carriers: [], note: 'Cell signal data unavailable' }
-    const data = await nearbyRes.json()
-    const count = data.places?.length || 0
-
-    let score: 'excellent' | 'good' | 'fair' | 'poor' | 'unknown' = 'unknown'
-    let note: string
-
-    if (count >= 8) { score = 'excellent'; note = `Likely excellent coverage (${count} nearby places)` }
-    else if (count >= 5) { score = 'good'; note = `Likely good coverage (${count} nearby places)` }
-    else if (count >= 2) { score = 'fair'; note = `Likely fair coverage (${count} nearby places — rural area)` }
-    else if (count === 1) { score = 'poor'; note = `Limited coverage (only ${count} place nearby — remote)` }
-    else { score = 'poor'; note = 'Very remote — cell coverage limited' }
-
-    return { score, carriers: [], note }
-  } catch {
-    return { score: 'unknown', carriers: [], note: 'Cell signal data unavailable' }
+    statusCode = nearbyRes.status
+    if (!nearbyRes.ok) {
+      errMsg = `http_${statusCode}`
+      const txt = await nearbyRes.text().catch(() => '')
+      errMsg += txt.substring(0, 80)
+    } else {
+      const data = await nearbyRes.json()
+      const count = data.places?.length || 0
+      if (count >= 8) return { score: 'excellent', carriers: [], note: `Likely excellent coverage (${count} nearby places)` }
+      if (count >= 5) return { score: 'good', carriers: [], note: `Likely good coverage (${count} nearby places)` }
+      if (count >= 2) return { score: 'fair', carriers: [], note: `Likely fair coverage (${count} nearby places — rural area)` }
+      if (count === 1) return { score: 'poor', carriers: [], note: `Limited coverage (only ${count} place nearby — remote)` }
+      return { score: 'poor', carriers: [], note: 'Very remote — cell coverage limited' }
+    }
+  } catch (e: unknown) {
+    errMsg = `catch_${String(e).substring(0, 60)}`
   }
+  return { score: 'unknown', carriers: [], note: errMsg }
 }
 
 // ── Campendium Reviews ────────────────────────────────────────────────────────
