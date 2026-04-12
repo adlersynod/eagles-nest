@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import DatePicker, { DateRangePicker } from './components/DatePicker'
 import ExternalLink from '../components/ExternalLink'
 import WalkRadiusSheet from '../components/WalkRadiusSheet'
@@ -222,21 +222,73 @@ function LocationInput({
   value: string; onChange: (v: string) => void; onSearch: () => void; loading: boolean
 }) {
   const [showTips, setShowTips] = useState(false)
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+
+  const fetchSuggestions = useCallback(async (q: string) => {
+    if (q.length < 2) { setSuggestions([]); return }
+    if (abortRef.current) abortRef.current.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
+    try {
+      const res = await fetch(`/api/suggest?q=${encodeURIComponent(q)}`, { signal: ac.signal })
+      if (res.ok) {
+        const d = await res.json()
+        setSuggestions(d.suggestions || [])
+      }
+    } catch { if (ac.signal.aborted) return }
+  }, [])
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handleChange = (v: string) => {
+    onChange(v)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => fetchSuggestions(v), 280)
+    setShowTips(v.length < 2)
+    setShowSuggestions(v.length >= 2)
+  }
+
   return (
     <>
       <div className="input-row">
-        <input
-          type="text"
-          placeholder="Enter city or destination (e.g. Portland, OR)"
-          value={value}
-          onChange={(e) => { onChange(e.target.value); setShowTips(e.target.value.length < 2) }}
-          onKeyDown={(e) => (e.key === 'Enter' || (e.metaKey && e.key === 'Enter')) && !loading && onSearch()}
-          onFocus={() => setShowTips(value.length < 2)}
-          onBlur={() => setTimeout(() => setShowTips(false), 150)}
-          aria-label="City or destination"
-        />
+        <div className="autocomplete-wrapper">
+          <input
+            type="text"
+            placeholder="Enter city or destination (e.g. Portland, OR)"
+            value={value}
+            onChange={(e) => handleChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || (e.metaKey && e.key === 'Enter')) { e.preventDefault(); setShowSuggestions(false); !loading && onSearch() }
+              if (e.key === 'ArrowDown') { e.preventDefault(); document.querySelector('.suggestion-item')?.setAttribute('tabindex', '0') }
+              if (e.key === 'Escape') setShowSuggestions(false)
+            }}
+            onFocus={() => value.length >= 2 && setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => { setShowSuggestions(false); setShowTips(false) }, 180)}
+            aria-label="City or destination"
+            aria-autocomplete="list"
+            aria-expanded={showSuggestions && suggestions.length > 0}
+            role="combobox"
+            list="city-suggestions"
+          />
+          {suggestions.length > 0 && showSuggestions && (
+            <ul className="autocomplete-list" role="listbox">
+              {suggestions.map((s, i) => (
+                <li
+                  key={s}
+                  className="suggestion-item"
+                  role="option"
+                  aria-selected="false"
+                  onMouseDown={() => { onChange(s); setShowSuggestions(false); setSuggestions([]) }}
+                >
+                  📍 {s}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         {value && (
-          <button className="clear-btn" onClick={() => { onChange(''); setShowTips(false) }} aria-label="Clear">
+          <button className="clear-btn" onClick={() => { onChange(''); setSuggestions([]); setShowSuggestions(false) }} aria-label="Clear">
             ✕
           </button>
         )}

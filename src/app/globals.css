@@ -1741,3 +1741,46 @@ body {
 .cell-signal-good .cell-bars { color: #84cc16; }
 .cell-signal-fair .cell-bars { color: #eab308; }
 .cell-signal-poor .cell-bars { color: #f97316; }
+
+/* ── Autocomplete ─────────────────────────────────────────── */
+.autocomplete-wrapper {
+  position: relative;
+  flex: 1;
+}
+
+.autocomplete-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #1a2535;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  z-index: 999;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.autocomplete-list li.suggestion-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #e8eaf0;
+  border-radius: 6px;
+  margin: 2px 4px;
+}
+
+.autocomplete-list li.suggestion-item:hover,
+.autocomplete-list li.suggestion-item[aria-selected="true"] {
+  background: rgba(255,255,255,0.08);
+}
+
+.autocomplete-list li.suggestion-item::before {
+  content: '📍';
+  margin-right: 8px;
+  opacity: 0.6;
+}
