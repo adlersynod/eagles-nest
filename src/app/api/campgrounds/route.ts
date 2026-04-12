@@ -254,7 +254,58 @@ async function fetchCampendiumCampgrounds(city: string): Promise<CampgroundResul
     if (allResults.length > 0) break
   }
 
-  if (allResults.length === 0) return []
+  // Fallback: scrape city directory page for private RV parks
+  if (allResults.length === 0) {
+    const cityUrls = await scrapeCampendiumCityPage(cleanCity)
+    if (cityUrls.length > 0) {
+      const detailResults = await Promise.all(cityUrls.slice(0, 6).map(async (campUrl) => {
+        try {
+          const slug = campUrl.replace('https://www.campendium.com/', '')
+          const detailRes = await fetch('https://www.campendium.com/' + slug, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', Accept: 'text/html' },
+            signal: AbortSignal.timeout(8000),
+          })
+          if (!detailRes.ok) return null
+          const html = await detailRes.text()
+          const ratingMatch = html.match(/content=["']([\d.]+)["'][^>]*itemprop=["']ratingvalue["']/i)
+                            || html.match(/itemprop=["']ratingvalue["'][^>]*content=["']([\d.]+)["']/i)
+          const reviewCountMatch = html.match(/content=["']([\d]+)["'][^>]*itemprop=["']reviewCount["']/i)
+                                || html.match(/itemprop=["']reviewCount["'][^>]*content=["']([\d]+)["']/i)
+          const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null
+          const reviewCount = reviewCountMatch ? parseInt(reviewCountMatch[1]) : 0
+          const pullThrough = /pull[\s-]?through/i.test(html)
+          const levelSites = /level\s*(?:sites?|pads?|spots?)/i.test(html)
+          const officialUrlMatch = html.match(/id=["']official-website-link["'][^>]+href=["']([^"']+)["']/i)
+                                 || html.match(/href=["'](https?:\/\/[^"']+)["'][^>]+id=["']official-website-link["']/i)
+          const officialUrl = officialUrlMatch ? officialUrlMatch[1] : undefined
+          let bookingType: string | undefined
+          const _propRe = new RegExp('window\\.placeDiscoveryProperties\\s*=\s*JSON\\.parse\\(`([^`]+)`\\)')
+          const _propMatch = _propRe.exec(html)
+          if (_propMatch) { try { bookingType = JSON.parse(_propMatch[1]).booking_type } catch { /* ignore */ } }
+          const priceTierMatch = html.match(/place_price_tier["']:\s*["']([^"']+)["']/i)
+          const priceMap: Record<string, string> = { '$': 'Under $30', '$$': '$30-$60', '$$$': '$60-$100', '$$$$': '$100+' }
+          const price = priceTierMatch ? priceMap[priceTierMatch[1]] || priceTierMatch[1] : null
+          let lat: number | undefined, lng: number | undefined
+          const latMatch = html.match(/lat["']:\s*([\d.-]+)/i)
+          const lngMatch = html.match(/lng["']:\s*([\d.-]+)/i)
+          if (latMatch && lngMatch) { lat = parseFloat(latMatch[1]); lng = parseFloat(lngMatch[1]) }
+          const nameMatch = html.match(/<title>([^<]+)<\/title>/i)
+          const name = nameMatch ? nameMatch[1].replace(/[_-]/g, ' ').trim() : slug.replace(/-/g, ' ')
+          return {
+            name, rating, price, amenities: [], photoUrl: null,
+            bookingUrl: officialUrl || undefined,
+            mapUrl: lat && lng ? 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng : null,
+            lat, lng,
+            vacancyStatus: 'unknown' as const, vacancyNote: '',
+            bigRigScore: 3.0, bigRigNotes: [],
+            campendium: { url: campUrl, reviewCount, summary: '', cellRating: '', pullThrough, levelSites, officialUrl, bookingType },
+          }
+        } catch { return null }
+      }))
+      return detailResults.filter(Boolean) as CampgroundResult[]
+    }
+    return []
+  }
 
   const limited = allResults.slice(0, 6)
   const enriched = await Promise.all(limited.map(async (r) => {
@@ -284,7 +335,7 @@ async function fetchCampendiumCampgrounds(city: string): Promise<CampgroundResul
 
       // Extract booking_type from placeDiscoveryProperties JSON blob
       let bookingType: string | undefined
-      const propMatch = html.match(/window\\.placeDiscoveryProperties\\s*=\\s*JSON\\.parse\\(`([^`]+)`)/)
+      const propMatch = html.match(/window\\.placeDiscoveryProperties\\s*=\s*JSON\\.parse\\(`([^`]+)`)/)
       if (propMatch) {
         try { bookingType = JSON.parse(propMatch[1]).booking_type } catch { /* ignore */ }
       }
@@ -331,6 +382,40 @@ async function fetchCampendiumCampgrounds(city: string): Promise<CampgroundResul
   return enriched.filter(Boolean) as CampgroundResult[]
 }
 
+
+// ── Campendium City Page Scraper (private parks directory) ──────────────────
+async function scrapeCampendiumCityPage(city: string): Promise<string[]> {
+  try {
+    const STATE_MAP: Record<string, string> = {
+      'portland': 'oregon', 'mt hood': 'oregon', 'sandy': 'oregon', 'bend': 'oregon',
+      'eugene': 'oregon', 'ashland': 'oregon', 'medford': 'oregon',
+      'seattle': 'washington', 'tacoma': 'washington', 'olympic': 'washington',
+      'vancouver': 'washington', 'olympia': 'washington', 'spokane': 'washington',
+      'redmond': 'oregon', 'sisters': 'oregon',
+      'las vegas': 'nevada', 'reno': 'nevada',
+      'phoenix': 'arizona', 'tucson': 'arizona', 'flagstaff': 'arizona',
+      'salt lake city': 'utah', 'zion': 'utah',
+      'denver': 'colorado', 'colorado springs': 'colorado',
+    }
+    const cityLower = city.toLowerCase()
+    let state = 'oregon'
+    for (const [key, val] of Object.entries(STATE_MAP)) {
+      if (cityLower.includes(key)) { state = val; break }
+    }
+    const citySlug = cityLower.split(' ')[0].replace(/[^a-z0-9]/g, '-')
+    const url = 'https://www.campendium.com/' + state + '/' + citySlug
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', Accept: 'text/html' },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) return []
+    const html = await res.text()
+    const matches = html.match(/\/campgrounds\/[a-z0-9-]+/gi) || []
+    const unique = [...new Set(matches.map(u => 'https://www.campendium.com' + u))]
+    return unique.slice(0, 12)
+  } catch { return [] }
+}
+
 // ── Campendium Reviews ────────────────────────────────────────────────────────
 const campendiumCache: Record<string, CampgroundResult['campendium']> = {}
 
@@ -369,7 +454,7 @@ async function fetchCampendiumReview(campName: string): Promise<CampgroundResult
 
     // Extract booking_type from placeDiscoveryProperties
     let bookingType: string | undefined
-    const propMatch = detailHtml.match(/window\\.placeDiscoveryProperties\\s*=\\s*JSON\\.parse\\(`([^`]+)`)/)
+    const propMatch = detailHtml.match(/window\\.placeDiscoveryProperties\\s*=\s*JSON\\.parse\\(`([^`]+)`)/)
     if (propMatch) {
       try { bookingType = JSON.parse(propMatch[1]).booking_type } catch { /* ignore */ }
     }
