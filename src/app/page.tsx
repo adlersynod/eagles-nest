@@ -43,6 +43,19 @@ type CampgroundResult = {
   lng?: number
   vacancyStatus: 'available' | 'limited' | 'likely_full' | 'unknown'
   vacancyNote: string
+  bigRigScore: number
+  bigRigNotes: string[]
+}
+
+type SavedPark = {
+  id: string
+  name: string
+  city: string
+  entityId: string
+  dateRange: { start: string; end: string } | null
+  lastKnownAvailable: number | null
+  lastChecked: string | null
+  addedAt: string
 }
 
 const TRAVEL_RISK_LABELS = {
@@ -287,13 +300,15 @@ function PlaceCard({ place, onWalkFromHere, badge }: { place: PlaceResult; onWal
 }
 
 // ── Campground Card (for RV Parks tab) ──────────────────────────────
-function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHere }: { camp: CampgroundResult; rangeStart: string; rangeEnd: string; isPeakSeason: boolean; onWalkFromHere?: (lat: number, lng: number, name: string) => void }) {
+function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHere, onSave, saved }: { camp: CampgroundResult; rangeStart: string; rangeEnd: string; isPeakSeason: boolean; onWalkFromHere?: (lat: number, lng: number, name: string) => void; onSave?: (camp: CampgroundResult) => void; saved?: boolean }) {
   const vacancy = VACANCY_LABELS[camp.vacancyStatus]
   const [imgError, setImgError] = useState(false)
   const nights = rangeStart && rangeEnd ? Math.max(0, Math.round((new Date(rangeEnd + 'T00:00:00').getTime() - new Date(rangeStart + 'T00:00:00').getTime()) / 86400000)) : 0
   const rangeLabel = rangeStart && rangeEnd && nights > 0
     ? `${formatDate(rangeStart)} → ${formatDate(rangeEnd)} · ${nights}n`
     : null
+
+  const scoreColor = camp.bigRigScore >= 4.5 ? '#22c55e' : camp.bigRigScore >= 4.0 ? '#84cc16' : camp.bigRigScore >= 3.0 ? '#eab308' : '#f97316'
 
   return (
     <div className="place-card">
@@ -309,6 +324,9 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHe
               <span className="category-badge">RV Park</span>
               <span className="vacancy-badge">
                 {vacancy.badge} {vacancy.label}
+              </span>
+              <span className="big-rig-badge" style={{ background: scoreColor }} title={camp.bigRigNotes?.join(' · ') || 'Big Rig Score'}>
+                🚐 {camp.bigRigScore}
               </span>
             </div>
           </div>
@@ -340,6 +358,15 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHe
           </p>
         )}
         <div className="card-actions card-actions-row">
+          {onSave && (
+            <button
+              className={`card-save-btn ${saved ? 'saved' : ''}`}
+              onClick={() => onSave(camp)}
+              title={saved ? 'Remove from Saved Parks' : 'Save Park + Enable Price Alerts'}
+            >
+              {saved ? '★ Saved' : '☆ Save Park'}
+            </button>
+          )}
           <ExternalLink href={camp.bookingUrl || camp.mapUrl || '#'} className="card-directions-btn check-avail-btn">
             {camp.bookingUrl ? '🎟️ Check Availability' : '🗺️ View on Maps'}
           </ExternalLink>
@@ -414,9 +441,9 @@ function ResultGrid({ places, loading, children, tabId, onWalkFromHere, badge }:
 
 // ── Campgrounds Grid ─────────────────────────────────────────────────
 function CampgroundsGrid({
-  campgrounds, loading, rangeStart, rangeEnd, isPeakSeason, onWalkFromHere,
+  campgrounds, loading, rangeStart, rangeEnd, isPeakSeason, onWalkFromHere, onSave, savedParks, city,
 }: {
-  campgrounds: CampgroundResult[]; loading: boolean; rangeStart: string; rangeEnd: string; isPeakSeason: boolean; onWalkFromHere?: (lat: number, lng: number, name: string) => void
+  campgrounds: CampgroundResult[]; loading: boolean; rangeStart: string; rangeEnd: string; isPeakSeason: boolean; onWalkFromHere?: (lat: number, lng: number, name: string) => void; onSave?: (camp: CampgroundResult, city: string) => void; savedParks?: SavedPark[]; city?: string
 }) {
   if (loading) {
     return (
@@ -436,7 +463,7 @@ function CampgroundsGrid({
   return (
     <div className="card-grid">
       {campgrounds.map((camp, i) => (
-        <CampgroundCard key={i} camp={camp} rangeStart={rangeStart} rangeEnd={rangeEnd} isPeakSeason={isPeakSeason} onWalkFromHere={onWalkFromHere} />
+        <CampgroundCard key={i} camp={camp} rangeStart={rangeStart} rangeEnd={rangeEnd} isPeakSeason={isPeakSeason} onWalkFromHere={onWalkFromHere} onSave={onSave ? (camp: CampgroundResult) => onSave(camp, city || '') : undefined} saved={savedParks?.some(p => p.name === camp.name)} />
       ))}
     </div>
   )
@@ -863,6 +890,10 @@ export default function Home() {
   })
   const [savedCities, setSavedCities] = useState<string[]>([])
   const [walkOrigin, setWalkOrigin] = useState<{ lat: number; lng: number; name: string } | null>(null)
+  // Big Rig Scout filter
+  const [bigRigFilter, setBigRigFilter] = useState(false)
+  // Saved Parks for alerts
+  const [savedParks, setSavedParks] = useState<SavedPark[]>([])
   // Per-tab search mode: 'popular' or 'local'
   const [searchMode, setSearchMode] = useState<Record<'attractions' | 'restaurants', 'popular' | 'local'>>({
     attractions: 'popular',
@@ -878,6 +909,44 @@ export default function Home() {
       if (lastCity) setCity(lastCity)
     } catch {}
   }, [])
+
+  // Load saved parks from API on mount
+  useEffect(() => {
+    fetch('/api/saved-parks')
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d.parks)) setSavedParks(d.parks) })
+      .catch(() => {})
+  }, [])
+
+  const loadSavedParks = () => {
+    fetch('/api/saved-parks')
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d.parks)) setSavedParks(d.parks) })
+      .catch(() => {})
+  }
+
+  const savePark = async (camp: CampgroundResult, campCity: string) => {
+    const res = await fetch('/api/saved-parks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: camp.name,
+        city: campCity,
+        entityId: '',
+        dateRange: rangeStart && rangeEnd ? { start: rangeStart, end: rangeEnd } : null,
+      }),
+    })
+    const d = await res.json()
+    if (d.ok) { setSavedParks(prev => [...prev, d.park]) }
+    return d
+  }
+
+  const removePark = async (id: string) => {
+    const res = await fetch(`/api/saved-parks?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (res.ok) setSavedParks(prev => prev.filter(p => p.id !== id))
+  }
+
+  const isParkSaved = (name: string) => savedParks.some(p => p.name === name)
 
   const saveCity = (c: string) => {
     try {
@@ -923,7 +992,7 @@ export default function Home() {
       // Fetch campground vacancy data
       setCampgroundsLoading(true)
       try {
-        const cgRes = await fetch(`/api/campgrounds?city=${encodeURIComponent(dest)}`)
+        const cgRes = await fetch(`/api/campgrounds?city=${encodeURIComponent(dest)}&bigRig=${bigRigFilter}`)
         const cgData = await cgRes.json()
         if (cgRes.ok && cgData.results) {
           setCampgrounds(cgData.results)
@@ -1029,6 +1098,16 @@ export default function Home() {
                   <span className="countdown-badge">⏱️ {daysUntilTrip} days until your trip</span>
                 </div>
               )}
+              {/* Big Rig Scout filter */}
+              <div className="big-rig-filter-row">
+                <span className="big-rig-filter-label">🚐 Big Rig Filter:</span>
+                <button
+                  className={`mode-toggle-btn ${bigRigFilter ? 'active' : ''}`}
+                  onClick={() => { setBigRigFilter(v => !v); setTimeout(() => handleSearch(), 0) }}
+                >
+                  {bigRigFilter ? '🚐 45\'+ Sites Only' : 'Show All Parks'}
+                </button>
+              </div>
               <DateRangePicker
                 startValue={rangeStart}
                 endValue={rangeEnd}
@@ -1041,6 +1120,40 @@ export default function Home() {
               <ParksWeatherBanner city={city} rangeStart={rangeStart} rangeEnd={rangeEnd} />
             </div>
           )}
+          {/* Saved Parks for Telegram Alerts */}
+          {savedParks.length > 0 && (
+            <details className="saved-parks-panel">
+              <summary className="saved-parks-header">
+                🐾 Saved Parks ({savedParks.length}) — Price alerts via Telegram daily at 9 AM
+              </summary>
+              <div className="saved-parks-list">
+                {savedParks.map(park => (
+                  <div key={park.id} className="saved-park-item">
+                    <div className="saved-park-info">
+                      <strong>{park.name}</strong>
+                      <span className="saved-park-meta">
+                        {park.city}
+                        {park.dateRange ? ` · ${park.dateRange.start} → ${park.dateRange.end}` : ''}
+                      </span>
+                      <span className={`saved-park-avail ${park.lastKnownAvailable === null ? 'unknown' : park.lastKnownAvailable > 0 ? 'available' : 'full'}`}>
+                        {park.lastKnownAvailable === null ? '⏳ Not checked yet'
+                          : park.lastKnownAvailable > 0 ? `🟢 ${park.lastKnownAvailable} sites available`
+                          : '🔴 Fully booked'}
+                      </span>
+                    </div>
+                    <button
+                      className="saved-park-remove"
+                      onClick={() => removePark(park.id)}
+                      title="Remove from Saved Parks"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p className="saved-parks-note">📱 Alerts sent to Telegram — make sure EaglesNestAlertBot can message you.</p>
+            </details>
+          )}
           <CampgroundsGrid
             campgrounds={campgrounds}
             loading={campgroundsLoading}
@@ -1048,6 +1161,9 @@ export default function Home() {
             rangeEnd={rangeEnd}
             isPeakSeason={peakSeason}
             onWalkFromHere={(lat, lng, name) => setWalkOrigin({ lat, lng, name })}
+            onSave={savePark}
+            savedParks={savedParks}
+            city={city}
           />
           {/* Fall back to Google Places parks if no campground data */}
           {(!campgroundsLoading && campgrounds.length === 0) && (

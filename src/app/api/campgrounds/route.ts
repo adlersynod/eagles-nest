@@ -12,6 +12,9 @@ type CampgroundResult = {
   lng?: number
   vacancyStatus: 'available' | 'limited' | 'likely_full' | 'unknown'
   vacancyNote: string
+  // Big Rig Scout fields
+  bigRigScore: number       // 1–5 score for 45'+ rigs
+  bigRigNotes: string[]     // short reasons behind the score
 }
 
 async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
@@ -71,6 +74,36 @@ async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
         ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(campName)}&query_place_id=${encodeURIComponent(String(entityId || ''))}`
         : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(campName)}`
 
+      // ── Big Rig Score ──────────────────────────────────────────────
+      const activityNames = (item?.activities || [])
+        .map((a: { activity_name: string }) => a.activity_name.toLowerCase())
+
+      const hasElectric = activityNames.some((a: string) => a.includes('electric'))
+      const hasWater = activityNames.some((a: string) => a.includes('water'))
+      const hasSewer = activityNames.some((a: string) => a.includes('sewer'))
+      const hasWifi = activityNames.some((a: string) => a.includes('wifi') || a.includes('internet'))
+      const hasPool = activityNames.some((a: string) => a.includes('pool'))
+
+      // Score: based on accessible campsites + hookup level + amenities
+      const accessibleCount = typeof availCount === 'number' ? availCount : 0
+      const siteScore = Math.min(2, accessibleCount >= 5 ? 2 : accessibleCount >= 2 ? 1 : 0)
+      let hookupScore = 0
+      if (hasElectric) hookupScore += 1
+      if (hasWater) hookupScore += 0.5
+      if (hasSewer) hookupScore += 0.5
+      const amenityScore = Math.min(2, [hasWifi, hasPool, activityNames.length > 5].filter(Boolean).length)
+      const rawBigRig = (siteScore * 2 + hookupScore + amenityScore) / 1.5
+      const bigRigScore = Math.round(Math.min(5, Math.max(1, rawBigRig)) * 10) / 10
+
+      const bigRigNotes: string[] = []
+      if (accessibleCount > 0) bigRigNotes.push(`${accessibleCount}+ accessible sites`)
+      if (hasElectric) bigRigNotes.push('50-amp sites')
+      if (hasSewer && hasWater) bigRigNotes.push('full hookups')
+      else if (hasWater) bigRigNotes.push('water hookup')
+      if (hasWifi) bigRigNotes.push('WiFi available')
+      if (bigRigScore >= 4) bigRigNotes.push('great for big rigs')
+      else if (bigRigScore < 3) bigRigNotes.push('call ahead for large rigs')
+
       results.push({
         name: campName,
         rating: (item?.average_rating as number) || null,
@@ -83,6 +116,8 @@ async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
         lng: lng ?? undefined,
         vacancyStatus,
         vacancyNote,
+        bigRigScore,
+        bigRigNotes,
       })
     }
     return results
@@ -94,13 +129,19 @@ async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const city = searchParams.get('city')
+  const bigRigOnly = searchParams.get('bigRig') === 'true'
 
   if (!city || city.length > 200) {
     return NextResponse.json({ error: 'Missing city parameter.' }, { status: 400 })
   }
 
   const citySanitized = city.replace(/[^a-zA-Z0-9\s\-\.,']/g, '').trim()
-  const results = await fetchRecreationGov(citySanitized)
+  let results = await fetchRecreationGov(citySanitized)
+
+  // Filter: 45'+ sites only — show only high big-rig-score parks
+  if (bigRigOnly) {
+    results = results.filter(r => r.bigRigScore >= 4.0)
+  }
 
   const month = new Date().getMonth() + 1
   const isPeakSeason = month >= 6 && month <= 9
@@ -110,5 +151,6 @@ export async function GET(request: NextRequest) {
     city: citySanitized,
     vacancyRisk: isPeakSeason ? 'seasonal' : 'low',
     peakSeason: isPeakSeason,
+    bigRigFilter: bigRigOnly,
   })
 }

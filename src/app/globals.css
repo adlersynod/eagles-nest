@@ -1332,3 +1332,166 @@ body {
 .directions-link:hover {
   color: #f0c040;
 }
+
+/* ── Big Rig Scout ──────────────────────────────── */
+.big-rig-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.big-rig-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.big-rig-filter-label {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.mode-toggle-btn {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1.5px solid #334155;
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mode-toggle-btn.active {
+  background: #22c55e;
+  color: #fff;
+  border-color: #22c55e;
+}
+
+.mode-toggle-btn:hover:not(.active) {
+  background: #334155;
+  color: #e2e8f0;
+}
+
+/* ── Saved Parks Panel ──────────────────────────── */
+.saved-parks-panel {
+  background: #1e293b;
+  border: 1.5px solid #334155;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.saved-parks-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #f8fafc;
+  cursor: pointer;
+  user-select: none;
+}
+
+.saved-parks-header::-webkit-details-marker { display: none; }
+
+.saved-parks-list {
+  padding: 0 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.saved-park-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #0f172a;
+  border-radius: 8px;
+}
+
+.saved-park-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.saved-park-info strong {
+  font-size: 0.88rem;
+  color: #f1f5f9;
+}
+
+.saved-park-meta {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.saved-park-avail {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.saved-park-avail.available { color: #4ade80; }
+.saved-park-avail.full { color: #f87171; }
+.saved-park-avail.unknown { color: #94a3b8; }
+
+.saved-park-remove {
+  background: rgba(239,68,68,0.15);
+  border: 1px solid rgba(239,68,68,0.3);
+  color: #f87171;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.saved-park-remove:hover {
+  background: rgba(239,68,68,0.3);
+}
+
+.saved-parks-note {
+  font-size: 0.75rem;
+  color: #475569;
+  padding: 0 16px 12px;
+  margin: 0;
+}
+
+/* ── Card Save Button ─────────────────────────── */
+.card-save-btn {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1.5px solid #334155;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.card-save-btn.saved {
+  background: #15803d;
+  color: #fff;
+  border-color: #22c55e;
+}
+
+.card-save-btn:hover:not(.saved) {
+  background: #334155;
+  color: #e2e8f0;
+}
