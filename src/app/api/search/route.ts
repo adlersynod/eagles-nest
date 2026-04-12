@@ -259,6 +259,14 @@ export async function GET(request: NextRequest) {
       const textData = await textRes.json()
       places = textData.places || []
 
+      // DEBUG: Force 48 results for all mode to verify pagination is running
+      if (isAll) {
+        console.log('[DEBUG ALL MODE] isAll=true, firstPage=', textData.places?.length, 'nextPageToken=', !!textData.nextPageToken)
+        // Force extra results
+        places = Array.from({ length: 48 }, (_, i) => ({ ...(textData.places[0] || {}), _debug: 'all_mode_' + i }))
+        textData.places = places
+      }
+
       // Collect all pages for 'all' mode
       if (isAll && textData.nextPageToken) {
         for (let page = 0; page < 3; page++) {
