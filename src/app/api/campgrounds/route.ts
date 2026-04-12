@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import ooklaUsCells from '@/lib/ookla_us_cells.json'
 
 type CampgroundResult = {
   name: string
@@ -30,20 +31,10 @@ type CampgroundResult = {
 }
 
 // ── Ookla Cell Coverage Lookup ────────────────────────────────────────────────
-// Loaded from public/ookla_us_cells.json — real speedtest data at zoom-9 (~5km cells)
+// Bundled from src/lib/ookla_us_cells.json — real speedtest data at zoom-9 (~5km cells)
+// 2,669 US cells, real RVer speedtests from Ookla Open Data
 type OoklaCell = { d: number; u: number; lat: number; tier: number; tests: number; n: number; lat_qk: number; lon_qk: number }
-let _ooklaCache: Record<string, OoklaCell> | null = null
-
-async function loadOoklaCache(): Promise<Record<string, OoklaCell>> {
-  if (_ooklaCache) return _ooklaCache
-  try {
-    const res = await fetch(new URL('/ookla_us_cells.json', process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000').toString())
-    if (res.ok) {
-      _ooklaCache = await res.json()
-    }
-  } catch { _ooklaCache = {} }
-  return _ooklaCache || {}
-}
+const OOKLA_CELLS = ooklaUsCells as Record<string, OoklaCell>
 
 function latLonToQuadkey9(lat: number, lon: number): string {
   const z = 9, n = 2 ** z
@@ -65,7 +56,7 @@ function latLonToQuadkey9(lat: number, lon: number): string {
 async function fetchCellSignal(lat: number, lng: number): Promise<CampgroundResult['cellSignal']> {
   // ── Source 1: Ookla speedtest data (real RVer measurements) ──
   try {
-    const cache = await loadOoklaCache()
+    const cache = OOKLA_CELLS
     const qk9 = latLonToQuadkey9(lat, lng)
     const cell = cache[qk9]
     if (cell && cell.tests > 0) {
