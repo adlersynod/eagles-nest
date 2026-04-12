@@ -242,21 +242,26 @@ export async function GET(request: NextRequest) {
   const city = searchParams.get('city')
   const bigRigOnly = searchParams.get('bigRig') === 'true'
   const enrich = searchParams.get('enrich') !== 'false'
+  const debug = searchParams.get('debug') === '1'
 
   if (!city || city.length > 200) return NextResponse.json({ error: 'Missing city parameter.' }, { status: 400 })
   const citySanitized = city.replace(/[^a-zA-Z0-9\s\-\.,']/g, '').trim()
   let results = await fetchRecreationGov(citySanitized)
   if (bigRigOnly) results = results.filter(r => r.bigRigScore >= 3.0)
 
+  const debugInfo: Record<string, string> = {}
   if (enrich) {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY
+    debugInfo['keyPrefix'] = apiKey ? apiKey.substring(0, 8) : 'MISSING'
     const enriched = await Promise.all(
       results.slice(0, 6).map(async (camp) => {
-        if (camp.lat != null && camp.lng != null) {
+        if (camp.lat != null && camp.lng != null && apiKey) {
           const [services, cellSignal]: [Record<string, unknown>, CampgroundResult['cellSignal']] = await Promise.all([
-            apiKey ? fetchNearbyServices(camp.lat, camp.lng, apiKey) : Promise.resolve({}),
+            fetchNearbyServices(camp.lat, camp.lng, apiKey),
             fetchCellSignal(camp.lat, camp.lng),
           ])
+          debugInfo[`${camp.name.substring(0, 15)}_cell`] = JSON.stringify(cellSignal)
+          debugInfo[`${camp.name.substring(0, 15)}_svc`] = JSON.stringify(services)
           const campendium = await fetchCampendiumReview(camp.name)
           return { ...camp, nearestServices: services, cellSignal, campendium }
         }
@@ -272,5 +277,6 @@ export async function GET(request: NextRequest) {
     vacancyRisk: month >= 6 && month <= 9 ? 'seasonal' : 'low',
     peakSeason: month >= 6 && month <= 9,
     bigRigFilter: bigRigOnly,
+    _debug: debugInfo,
   })
 }
