@@ -972,6 +972,7 @@ export default function Home() {
     attractions: 'popular',
     restaurants: 'popular',
   })
+  const [parksMode, setParksMode] = useState<'popular' | 'all'>('popular')
 
   // Load saved cities and last city from localStorage on mount
   useEffect(() => {
@@ -1058,7 +1059,7 @@ export default function Home() {
     try {
       // Run Google Places searches in parallel — use current mode per tab
       const promises = tabs.map(async (tab) => {
-        const mode = tab === 'parks' ? 'popular' : (searchMode[tab as 'attractions' | 'restaurants'] || 'popular')
+        const mode = tab === 'parks' ? parksMode : (searchMode[tab as 'attractions' | 'restaurants'] || 'popular')
         const res = await fetch(`/api/search?city=${encodeURIComponent(dest)}&type=${tab}&mode=${mode}`)
         const json = await res.json()
         if (!res.ok) throw new Error(json.error || 'Search failed')
@@ -1114,6 +1115,33 @@ export default function Home() {
       <SearchStatus loading={loading} city={city} />
 
       <TabBar active={activeTab} onChange={setActiveTab} />
+
+      {/* Mode toggle: Popular / Local Gems / All — parks tab shows All Results */}
+      {activeTab === 'parks' && city && (
+        <div className="mode-toggle">
+          <button
+            className={`mode-btn ${parksMode === 'popular' ? 'active' : ''}`}
+            onClick={() => setParksMode('popular')}
+          >
+            🌍 Popular
+          </button>
+          <button
+            className={`mode-btn ${parksMode === 'all' ? 'active' : ''}`}
+            onClick={() => {
+              setParksMode('all')
+              if (!city.trim()) return
+              setLoading(true)
+              fetch(`/api/search?city=${encodeURIComponent(city)}&type=parks&mode=all`)
+                .then(r => r.json())
+                .then(d => { if (d.results) setData(prev => ({ ...prev, parks: d.results })) })
+                .catch(() => {})
+                .finally(() => setLoading(false))
+            }}
+          >
+            📋 All Results
+          </button>
+        </div>
+      )}
 
       {/* Mode toggle: Popular / Local Gems — only on attractions + restaurants */}
       {(activeTab === 'attractions' || activeTab === 'restaurants') && city && (

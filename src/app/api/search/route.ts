@@ -71,7 +71,7 @@ async function nearbySearch(
         },
         includedType,
         languageCode: 'en',
-        maxResultCount: 16,
+        maxResultCount: 48,
       }
 
       const res = await fetch(
@@ -162,7 +162,7 @@ const SEARCH_CONFIG: Record<string, { query: string; includedType?: string; loca
     localQuery: 'local restaurant food cart brewery winery neighborhood cafe ethnic food dive bar bbq',
   },
   parks: {
-    query: 'large rig RV park 45 foot campsite',
+    query: 'rv park campground campsite rv resort motorcoach resort',
     includedType: 'campground',
   },
 }
@@ -171,7 +171,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const city = searchParams.get('city')
   const type = searchParams.get('type')
-  const mode = searchParams.get('mode') === 'local' ? 'local' : 'popular'
+  const _rawMode = searchParams.get('mode')
+  const mode: 'local' | 'popular' | 'all' = _rawMode === 'local' || _rawMode === 'all' ? _rawMode as 'local' | 'all' : 'popular'
 
   if (!city || city.length > 200) {
     return NextResponse.json({ error: 'Missing or invalid city parameter.' }, { status: 400 })
@@ -192,6 +193,7 @@ export async function GET(request: NextRequest) {
   }
 
   const isLocal = mode === 'local'
+  const isAll = mode === 'all'
   const config = SEARCH_CONFIG[type]
   const fieldMask = [
     'places.name', 'places.displayName', 'places.rating', 'places.priceLevel',
@@ -235,7 +237,7 @@ export async function GET(request: NextRequest) {
       const body: Record<string, unknown> = {
         textQuery,
         languageCode: 'en',
-        maxResultCount: 8,
+        maxResultCount: 48,
       }
       if (config.includedType) body.includedType = config.includedType
 
@@ -256,9 +258,28 @@ export async function GET(request: NextRequest) {
 
       const textData = await textRes.json()
       places = textData.places || []
+
+      // Collect all pages for 'all' mode
+      if (isAll && textData.nextPageToken) {
+        for (let page = 0; page < 3; page++) {
+          await new Promise(r => setTimeout(r, 1200))
+          const pageRes = await fetch(
+            `https://places.googleapis.com/v1/places:searchText`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': fieldMask },
+              body: JSON.stringify({ ...body, pageToken: textData.nextPageToken }),
+            }
+          )
+          if (!pageRes.ok) break
+          const pageData = await pageRes.json()
+          if (pageData.places?.length) places.push(...pageData.places)
+          if (!pageData.nextPageToken) break
+        }
+      }
     }
 
-    const results: PlaceResult[] = places.slice(0, 8).map(p => mapPlace(p, apiKey))
+    const results: PlaceResult[] = places.map(p => mapPlace(p, apiKey))
 
     // Usage tracker
     fetch(new URL('/api/monitor', process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000').toString(), {
