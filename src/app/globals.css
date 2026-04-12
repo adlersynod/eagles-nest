@@ -1696,3 +1696,48 @@ body {
   cursor: pointer;
   outline: none;
 }
+
+/* ── Nearby Cities ─────────────────────────────────────────────────────── */
+.nearby-cities-panel {
+  background: linear-gradient(135deg, #1e3a2f 0%, #2d4a3e 100%);
+  border: 1px solid #3b6b4d;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: 8px 16px 16px;
+  text-align: center;
+}
+.nearby-label {
+  color: #a8d5b8;
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+.nearby-city-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.nearby-city-chip {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid #3b6b4d;
+  color: #a8d5b8;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.nearby-city-chip:hover {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+}
+
+/* ── Cell Signal Bars ─────────────────────────────────────────────────────── */
+.cell-bars {
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.cell-signal-excellent .cell-bars { color: #22c55e; }
+.cell-signal-good .cell-bars { color: #84cc16; }
+.cell-signal-fair .cell-bars { color: #eab308; }
+.cell-signal-poor .cell-bars { color: #f97316; }

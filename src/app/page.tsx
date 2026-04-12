@@ -390,13 +390,14 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHe
             )}
             {cell && cell.score !== 'unknown' && (
               <span className={`enrich-chip cell-signal-${cell.score}`} title={cell.note}>
-                {cell.score === 'excellent' ? '📶 Excellent cell' :
-                 cell.score === 'good' ? '📶 Good cell' :
-                 cell.score === 'fair' ? '📶 Fair cell' : '📶 Poor cell'}
-                {cell.note ? (() => {
+                {(() => {
+                  const bars = cell.score === 'excellent' ? 4 : cell.score === 'good' ? 3 : cell.score === 'fair' ? 2 : 1
+                  const total = 4
+                  const label = cell.score.charAt(0).toUpperCase() + cell.score.slice(1)
                   const m = cell.note.match(/FCC_ASR:(\d+):/)
-                  return m ? ` · ${m[1]} towers` : ` · ${cell.note}`
-                })() : ''}
+                  const towers = m ? `${m[1]} towers` : cell.note
+                  return <><span className="cell-bars">{'●'.repeat(bars)}{'○'.repeat(total - bars)}</span> {label} · {towers}</>
+                })()}
               </span>
             )}
             {cell && cell.score === 'unknown' && (
@@ -944,6 +945,7 @@ export default function Home() {
   // Campground vacancy data
   const [campgrounds, setCampgrounds] = useState<CampgroundResult[]>([])
   const [campgroundsLoading, setCampgroundsLoading] = useState(false)
+  const [nearbyCities, setNearbyCities] = useState<string[]>([])
   const [isPeakSeason, setIsPeakSeason] = useState(false)
   const [campgroundsUpdated, setCampgroundsUpdated] = useState<string>('')
   const todayStr = new Date().toISOString().slice(0, 10)
@@ -1078,6 +1080,7 @@ export default function Home() {
         const cgData = await cgRes.json()
         if (cgRes.ok && cgData.results) {
           setCampgrounds(cgData.results)
+          setNearbyCities(cgData.nearbyCities || [])
           setIsPeakSeason(cgData.peakSeason || false)
           setCampgroundsUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
         }
@@ -1353,13 +1356,25 @@ export default function Home() {
             savedParks={savedParks}
             city={city}
           />
-          {/* Fall back to Google Places parks if no campground data */}
+          {/* Nearby cities suggestion + fallback to Google Places */}
           {(!campgroundsLoading && campgrounds.length === 0) && (
             <>
-              <p className="state-msg">
-                <span className="emoji">🌲</span>
-                No Recreation.gov data for this area — showing Google Places RV parks below.
-              </p>
+              {nearbyCities.length > 0 && (
+                <div className="nearby-cities-panel">
+                  <p className="nearby-label">📍 Thin results for <strong>{city}</strong> — try a nearby area:</p>
+                  <div className="nearby-city-chips">
+                    {nearbyCities.map(c => (
+                      <button key={c} className="nearby-city-chip" onClick={() => { setCity(c); window.scrollTo({ top: 0, behavior: 'smooth' }); setNearbyCities([]); }}>{c}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {nearbyCities.length === 0 && (
+                <p className="state-msg">
+                  <span className="emoji">🌲</span>
+                  No Recreation.gov data for this area — showing Google Places RV parks below.
+                </p>
+              )}
               <ResultGrid places={data.parks || []} loading={false} tabId="parks" onWalkFromHere={(lat, lng, name) => setWalkOrigin({ lat, lng, name })} />
             </>
           )}
