@@ -6,7 +6,7 @@ import ExternalLink from '../components/ExternalLink'
 import WalkRadiusSheet from '../components/WalkRadiusSheet'
 
 // ── Types ────────────────────────────────────────────────────────────
-type TabId = 'attractions' | 'restaurants' | 'parks' | 'weather' | 'plans'
+type TabId = 'attractions' | 'restaurants' | 'parks' | 'weather' | 'plans' | 'import'
 
 type PlaceResult = {
   id: string
@@ -102,6 +102,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'parks', label: '🏕️ RV Parks' },
   { id: 'weather', label: '🌤️ Weather' },
   { id: 'plans', label: '📋 Plans' },
+  { id: 'import', label: '📥 Import' },
 ]
 
 type PriceObj = { amount_min: number; amount_max: number; per_unit: string }
@@ -817,6 +818,101 @@ function WeatherDisplay({ city }: { city: string }) {
   )
 }
 
+
+// ── Import Panel ────────────────────────────────────────────────────
+function ImportPanel() {
+  const [file, setFile] = useState<File | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [tripData, setTripData] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleUpload = async () => {
+    if (!file) return
+    setLoading(true)
+    setError(null)
+    const formData = new FormData()
+    formData.append('file', file)
+
+    try {
+      const res = await fetch('/api/import-trip', { method: 'POST', body: formData })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Import failed')
+      setTripData(data)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="plans-panel">
+      <div className="plan-header">
+        <h2 className="plan-title">Import RV Trip Wizard</h2>
+        <p className="plan-subtitle">Upload your XLSX or CSV export to enrich your trip</p>
+      </div>
+
+      <div className="import-upload-area">
+        <input 
+          type="file" 
+          accept=".xlsx,.csv" 
+          onChange={(e) => setFile(e.target.files?.[0] || null)}
+          id="trip-file-input"
+          style={{ display: 'none' }}
+        />
+        <label htmlFor="trip-file-input" className={`import-dropzone ${file ? 'has-file' : ''}`}>
+          {file ? `📄 ${file.name}` : "Click to select RV Trip Wizard export"}
+        </label>
+        
+        <button 
+          className="go-btn" 
+          onClick={handleUpload} 
+          disabled={!file || loading}
+          style={{ width: '100%', marginTop: '1rem' }}
+        >
+          {loading ? 'Processing...' : 'Analyze Trip'}
+        </button>
+      </div>
+
+      {error && <p className="state-msg error">❌ {error}</p>}
+
+      {tripData && (
+        <div className="trip-analysis">
+          <div className="analysis-summary">
+            <h3>{tripData.tripName}</h3>
+            <p>{tripData.stopCount} stops • {tripData.totalMiles} total miles</p>
+          </div>
+          
+          <div className="stop-list">
+            {tripData.stops.map((stop: any, i: number) => {
+              const driveAlert = stop.miles > 300
+              const isWeekend = stop.arrivalDay?.includes('Saturday') || stop.arrivalDay?.includes('Sunday')
+              
+              return (
+                <div key={i} className="stop-item">
+                  <div className="stop-main">
+                    <span className="stop-num">{i + 1}</span>
+                    <div className="stop-info">
+                      <div className="stop-name">{stop.stopName}</div>
+                      <div className="stop-meta">
+                        {stop.arrivalDate} • {stop.nights} nights • {stop.miles} mi
+                      </div>
+                    </div>
+                    {driveAlert && <span className="warning-badge">⚠️ {stop.miles}mi</span>}
+                  </div>
+                  <div className="stop-footer">
+                    {!isWeekend && stop.miles > 0 && <span className="weekday-alert">🏗️ Work Day Travel</span>}
+                    {stop.isCityWaypoint && <span className="waypoint-tag">📍 City Waypoint</span>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 // ── Plans Panel ─────────────────────────────────────────────────────
 type PlanStop = {
   time: string
@@ -1224,7 +1320,7 @@ export default function Home() {
         </div>
       )}
 
-      {activeTab === 'plans' ? (
+      {activeTab === 'import' ? (<ImportPanel />) : activeTab === 'plans' ? (
         <PlansPanel
           city={city}
           rangeStart={rangeStart}
