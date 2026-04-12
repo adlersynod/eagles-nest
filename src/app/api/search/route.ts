@@ -298,8 +298,12 @@ export async function GET(request: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     }).catch(() => {})
 
-    console.log('[SEARCH FINAL] mode=', mode, 'isAll=', isAll, 'results=', results.length)
-    return NextResponse.json({ results, city, mode, _deploy_ts: '2026-04-12-TEST_V2', _marker: 'UNIQUE_AFTER_DEBUG_v3' })
+    // Inline mode computation — no cached variables
+    const _rm = request.nextUrl.searchParams.get('mode')
+    const _computedMode: 'local' | 'popular' | 'all' = (_rm === 'local' || _rm === 'all') ? (_rm as 'local' | 'all') : 'popular'
+    
+    console.log('[SEARCH FINAL] inline mode=', _computedMode, 'results=', results.length)
+    return NextResponse.json({ results, city, mode: _computedMode })
   } catch (error) {
     console.error('Search error:', error)
     return NextResponse.json({ error: 'Failed to fetch results.' }, { status: 500 })
