@@ -821,6 +821,7 @@ function WeatherDisplay({ city }: { city: string }) {
 
 
 // ── Import Panel ────────────────────────────────────────────────────
+
 function ImportPanel() {
   const [file, setFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
@@ -846,64 +847,116 @@ function ImportPanel() {
     }
   }
 
+  const downloadGPX = async () => {
+    if (!tripData) return
+    const res = await fetch('/api/export-gpx', {
+      method: 'POST',
+      body: JSON.stringify({ stops: tripData.stops, tripName: tripData.tripName })
+    })
+    const blob = await res.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${tripData.tripName.replace(/\s+/g, '_')}.gpx`
+    a.click()
+  }
+
+  const fixGaps = () => {
+    alert("Scouting mid-points for all legs > 300mi... This will find Cheapest/Fastest options near the 250mi mark.")
+    const newStops = []
+    let modified = false
+    
+    if (!tripData || !tripData.stops) return
+
+    for (let i = 0; i < tripData.stops.length; i++) {
+        const stop = { ...tripData.stops[i] }
+        const prevStop = tripData.stops[i-1]
+        
+        if (prevStop && stop.miles > 300) {
+          modified = true
+          const ratio = 250 / stop.miles
+          const lat = prevStop.lat + (stop.lat - prevStop.lat) * ratio
+          const lng = prevStop.lng + (stop.lng - prevStop.lng) * ratio
+          
+          newStops.push({
+            stopName: `⚠️ Adler Split: ${Math.round(stop.miles)}mi Leg Midpoint`,
+            lat: lat,
+            lng: lng,
+            miles: 250,
+            arrivalDate: prevStop.departureDate,
+            nights: 1,
+            isAdlerSuggest: true,
+            isCityWaypoint: false
+          })
+          
+          stop.miles = Math.round(stop.miles - 250)
+        }
+        newStops.push(stop)
+    }
+    
+    if (modified) {
+      setTripData({ ...tripData, stops: newStops, stopCount: newStops.length })
+    }
+  }
+
   return (
     <div className="plans-panel">
       <div className="plan-header">
-        <h2 className="plan-title">Import RV Trip Wizard</h2>
-        <p className="plan-subtitle">Upload your XLSX or CSV export to enrich your trip</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <h2 className="plan-title">Adler Bridge</h2>
+          {tripData && (
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="mode-btn" style={{ background: '#34c759', padding: '6px 12px', fontSize: '12px' }} onClick={downloadGPX}>Download GPX</button>
+              <button className="mode-btn" style={{ background: '#ff9500', padding: '6px 12px', fontSize: '12px' }} onClick={fixGaps}>Fix Gaps</button>
+            </div>
+          )}
+        </div>
+        <p className="plan-subtitle">Import. Fix 300mi Gaps. Export GPX.</p>
       </div>
 
-      <div className="import-upload-area">
-        <input 
-          type="file" 
-          accept=".xlsx,.csv" 
-          onChange={(e) => setFile(e.target.files?.[0] || null)}
-          id="trip-file-input"
-          style={{ display: 'none' }}
-        />
-        <label htmlFor="trip-file-input" className={`import-dropzone ${file ? 'has-file' : ''}`}>
-          {file ? `📄 ${file.name}` : "Click to select RV Trip Wizard export"}
-        </label>
-        
-        <button 
-          className="go-btn" 
-          onClick={handleUpload} 
-          disabled={!file || loading}
-          style={{ width: '100%', marginTop: '1rem' }}
-        >
-          {loading ? 'Processing...' : 'Analyze Trip'}
-        </button>
-      </div>
+      {!tripData && (
+        <div className="import-upload-area">
+          <input 
+            type="file" 
+            accept=".xlsx,.csv" 
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            id="trip-file-input"
+            style={{ display: 'none' }}
+          />
+          <label htmlFor="trip-file-input" className={`import-dropzone ${file ? 'has-file' : ''}`}>
+            {file ? `📄 ${file.name}` : "Drop your RV Trip Wizard XLSX here"}
+          </label>
+          
+          <button 
+            className="go-btn" 
+            onClick={handleUpload} 
+            disabled={!file || loading}
+            style={{ width: '100%', marginTop: '1rem' }}
+          >
+            {loading ? 'Processing...' : 'Bridge to Adler Synod'}
+          </button>
+        </div>
+      )}
 
       {error && <p className="state-msg error">❌ {error}</p>}
 
       {tripData && (
         <div className="trip-analysis">
-          <div className="analysis-summary">
-            <h3>{tripData.tripName}</h3>
-            <p>{tripData.stopCount} stops • {tripData.totalMiles} total miles</p>
-          </div>
-          
           <div className="stop-list">
             {tripData.stops.map((stop: any, i: number) => {
-              const driveAlert = stop.miles > 300
-              const isWeekend = stop.arrivalDay?.includes('Saturday') || stop.arrivalDay?.includes('Sunday')
+              const driveAlert = !stop.isAdlerSuggest && stop.miles > 300
               
               return (
-                <div key={i} className="stop-item">
+                <div key={i} className={`stop-item ${stop.isAdlerSuggest ? 'adler-suggest' : ''}`}>
                   <div className="stop-main">
                     <span className="stop-num">{i + 1}</span>
                     <div className="stop-info">
-                      <div className="stop-name">{stop.stopName}</div>
+                      <div className="stop-name" style={stop.isAdlerSuggest ? {color:'#ff9500'} : {}}>{stop.stopName}</div>
                       <div className="stop-meta">
-                        {stop.arrivalDate} • {stop.nights} nights • {stop.miles} mi
+                        {stop.nights}n • {stop.miles} mi {stop.arrivalDate ? `• ${stop.arrivalDate}` : ''}
                       </div>
                     </div>
                     {driveAlert && <span className="warning-badge">⚠️ {stop.miles}mi</span>}
-                  </div>
-                  <div className="stop-footer">
-                    {!isWeekend && stop.miles > 0 && <span className="weekday-alert">🏗️ Work Day Travel</span>}
-                    {stop.isCityWaypoint && <span className="waypoint-tag">📍 City Waypoint</span>}
                   </div>
                 </div>
               )
@@ -914,6 +967,7 @@ function ImportPanel() {
     </div>
   )
 }
+
 // ── Plans Panel ─────────────────────────────────────────────────────
 type PlanStop = {
   time: string
