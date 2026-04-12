@@ -253,26 +253,23 @@ export async function GET(request: NextRequest) {
   let results = await fetchRecreationGov(citySanitized)
   if (bigRigOnly) results = results.filter(r => r.bigRigScore >= 3.0)
 
-  const debugInfo: Record<string, string> = {}
   if (enrich) {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY
-    debugInfo['keyPrefix'] = apiKey ? apiKey.substring(0, 8) : 'MISSING'
-    const enriched = await Promise.all(
-      results.slice(0, 6).map(async (camp) => {
-        if (camp.lat != null && camp.lng != null && apiKey) {
-          const [services, cellSignal]: [Record<string, unknown>, CampgroundResult['cellSignal']] = await Promise.all([
-            fetchNearbyServices(camp.lat, camp.lng, apiKey),
-            fetchCellSignal(camp.lat, camp.lng),
-          ])
-          debugInfo[`${camp.name.substring(0, 15)}_cell`] = JSON.stringify(cellSignal)
-          debugInfo[`${camp.name.substring(0, 15)}_svc`] = JSON.stringify(services)
-          const campendium = await fetchCampendiumReview(camp.name)
-          return { ...camp, nearestServices: services, cellSignal, campendium }
-        }
-        return camp
-      })
-    )
-    results = enriched
+    if (apiKey) {
+      results = await Promise.all(
+        results.slice(0, 6).map(async (camp) => {
+          if (camp.lat != null && camp.lng != null) {
+            const [services, cellSignal]: [Record<string, unknown>, CampgroundResult['cellSignal']] = await Promise.all([
+              fetchNearbyServices(camp.lat, camp.lng, apiKey),
+              fetchCellSignal(camp.lat, camp.lng),
+            ])
+            const campendium = await fetchCampendiumReview(camp.name)
+            return { ...camp, nearestServices: services, cellSignal, campendium }
+          }
+          return camp
+        })
+      )
+    }
   }
 
   const month = new Date().getMonth() + 1
@@ -281,6 +278,5 @@ export async function GET(request: NextRequest) {
     vacancyRisk: month >= 6 && month <= 9 ? 'seasonal' : 'low',
     peakSeason: month >= 6 && month <= 9,
     bigRigFilter: bigRigOnly,
-    _debug: debugInfo,
   })
 }
