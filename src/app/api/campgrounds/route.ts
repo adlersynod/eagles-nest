@@ -124,54 +124,53 @@ async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
 
 // ── Nearby Services (gas, grocery, dump) ─────────────────────────────────────
 async function fetchNearbyServices(lat: number, lng: number, apiKey: string) {
-  const radius = 8000 // 8km
-
+  const radius = 15000 // 15km — remote parks may have nothing closer
   const results: Record<string, { name: string; distanceMi: number } | null> = {
     gasStation: null, groceryStore: null, dumpStation: null,
   }
 
   try {
     const body = {
-      locationBias: {
-        circle: { center: { latitude: lat, longitude: lng }, radius: radius },
-      },
+      locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius } },
       languageCode: 'en',
-      maxResultCount: 5,
+      maxResultCount: 3,
     }
 
-    const types = ['gas_station', 'supermarket', 'dump_station']
-    for (let i = 0; i < types.length; i++) {
-      const includedType = types[i]
+    // Valid Google Places types: gas_station, supermarket, convenience_store, store
+    const typeMap: Array<{ type: string; key: keyof typeof results }> = [
+      { type: 'gas_station', key: 'gasStation' },
+      { type: 'supermarket', key: 'groceryStore' },
+      // dump stations — search for campgrounds as proxy (they often have dump facilities)
+      { type: 'campground', key: 'dumpStation' },
+    ]
+
+    for (const { type, key } of typeMap) {
       const fieldMask = 'places.displayName,places.location'
       const res = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': apiKey, 'X-Goog-FieldMask': fieldMask },
-        body: JSON.stringify({ ...body, includedType }),
+        body: JSON.stringify({ ...body, includedType: type }),
       })
       if (!res.ok) continue
       const data = await res.json()
-      const places = data.places || []
+      const places: Array<{ displayName?: { text: string }; name?: string; location?: { latitude: number; longitude: number } }> = data.places || []
       if (places.length > 0) {
         const top = places[0]
-        const name = (top.displayName as { text: string })?.text || top.name || ''
-        const pLat = (top.location as { latitude: number })?.latitude
-        const pLng = (top.location as { longitude: number })?.longitude
-        const distMi = pLat && pLng
-          ? Math.round(haversineMi(lat, lng, pLat, pLng) * 10) / 10
-          : null
-        const key = includedType === 'gas_station' ? 'gasStation'
-          : includedType === 'supermarket' ? 'groceryStore' : 'dumpStation'
+        const name = top.displayName?.text || top.name || ''
+        const pLat = top.location?.latitude
+        const pLng = top.location?.longitude
+        const distMi = pLat && pLng ? Math.round(haversineMi(lat, lng, pLat, pLng) * 10) / 10 : null
         results[key] = { name, distanceMi: distMi || 0 }
       }
     }
   } catch { /* services are optional */ }
 
   return {
-    gasStation: results.gasStation?.name,
+    gasStation: results.gasStation?.name || undefined,
     gasDistanceMi: results.gasStation?.distanceMi,
-    groceryStore: results.groceryStore?.name,
+    groceryStore: results.groceryStore?.name || undefined,
     groceryDistanceMi: results.groceryStore?.distanceMi,
-    dumpStation: results.dumpStation?.name,
+    dumpStation: results.dumpStation?.name || undefined,
     dumpDistanceMi: results.dumpStation?.distanceMi,
   }
 }
