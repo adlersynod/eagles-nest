@@ -45,6 +45,19 @@ type CampgroundResult = {
   vacancyNote: string
   bigRigScore: number
   bigRigNotes: string[]
+  nearestServices?: {
+    gasStation?: string; gasDistanceMi?: number
+    groceryStore?: string; groceryDistanceMi?: number
+    dumpStation?: string; dumpDistanceMi?: number
+  }
+  cellSignal?: {
+    score: 'excellent' | 'good' | 'fair' | 'poor' | 'unknown'
+    carriers: string[]; note: string
+  }
+  campendium?: {
+    url: string; reviewCount: number; summary: string
+    cellRating: string; pullThrough: boolean; levelSites: boolean
+  }
 }
 
 type SavedPark = {
@@ -309,6 +322,7 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHe
     : null
 
   const scoreColor = camp.bigRigScore >= 4.5 ? '#22c55e' : camp.bigRigScore >= 4.0 ? '#84cc16' : camp.bigRigScore >= 3.0 ? '#eab308' : '#f97316'
+  const cell = camp.cellSignal
 
   return (
     <div className="place-card">
@@ -349,6 +363,41 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHe
               const icon = a.includes('wifi') ? '📶' : a.includes('pet') ? '🐾' : a.includes('water') ? '💧' : a.includes('electr') ? '⚡' : a.includes('dump') ? '🚰' : a.includes('laundry') ? '🧺' : a.includes('playground') ? '🎢' : a.includes('campfire') || a.includes('fire') ? '🔥' : '•'
               return <span key={a} className="amenity-chip" title={a}>{icon}</span>
             })}
+          </div>
+        )}
+        {/* Enrichment: Nearby services + cell signal */}
+        {(camp.nearestServices || camp.cellSignal) && (
+          <div className="enrichment-row">
+            {camp.nearestServices?.gasStation && (
+              <span className="enrich-chip" title="Nearest gas station">⛽ {camp.nearestServices.gasStation.substring(0, 20)}{camp.nearestServices.gasDistanceMi ? ` (${camp.nearestServices.gasDistanceMi}mi)` : ''}</span>
+            )}
+            {camp.nearestServices?.groceryStore && (
+              <span className="enrich-chip" title="Nearest grocery">🛒 {camp.nearestServices.groceryStore.substring(0, 18)}{camp.nearestServices.groceryDistanceMi ? ` (${camp.nearestServices.groceryDistanceMi}mi)` : ''}</span>
+            )}
+            {camp.nearestServices?.dumpStation && (
+              <span className="enrich-chip" title="Nearest dump station">🚰 Dump {camp.nearestServices.dumpDistanceMi ? ` (${camp.nearestServices.dumpDistanceMi}mi)` : ''}</span>
+            )}
+            {cell && cell.score !== 'unknown' && (
+              <span className={`enrich-chip cell-signal-${cell.score}`} title={cell.note}>
+                {cell.score === 'excellent' ? '📶 Excellent' :
+                 cell.score === 'good' ? '📶 Good' :
+                 cell.score === 'fair' ? '📶 Fair' : '📶 Poor'}{cell.carriers?.length ? ` (${cell.carriers.join('/')})` : ''}
+              </span>
+            )}
+            {cell && cell.score === 'unknown' && (
+              <span className="enrich-chip enrich-chip-muted" title="Cell data unavailable">📶 Cell data unavailable</span>
+            )}
+          </div>
+        )}
+        {/* Campendium reviews */}
+        {camp.campendium && camp.campendium.reviewCount > 0 && (
+          <div className="campendium-row">
+            <ExternalLink href={camp.campendium.url} className="campendium-badge">
+              📋 Campendium · {camp.campendium.reviewCount} reviews
+              {camp.campendium.cellRating ? ` · 📶 Cell ${camp.campendium.cellRating}` : ''}
+              {camp.campendium.pullThrough ? ' · 🔄 Pull-through sites' : ''}
+              {camp.campendium.levelSites ? ' · ⬜ Level sites' : ''}
+            </ExternalLink>
           </div>
         )}
         {rangeLabel && <p className="date-range-badge">📅 {rangeLabel}</p>}
