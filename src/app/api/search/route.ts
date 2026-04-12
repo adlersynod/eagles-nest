@@ -288,7 +288,7 @@ export async function GET(request: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     }).catch(() => {})
 
-    return NextResponse.json({ results, city, mode })
+    return NextResponse.json({ results, city, mode, _test_v5: 'THIS_IS_V5_CODE' })
   } catch (error) {
     console.error('Search error:', error)
     return NextResponse.json({ error: 'Failed to fetch results.' }, { status: 500 })
