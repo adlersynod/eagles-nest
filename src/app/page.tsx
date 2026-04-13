@@ -1254,6 +1254,8 @@ export default function Home() {
   const [campgrounds, setCampgrounds] = useState<CampgroundResult[]>([])
   const [campgroundsLoading, setCampgroundsLoading] = useState(false)
   const [nearbyCities, setNearbyCities] = useState<string[]>([])
+  const [nearbyCitiesTotal, setNearbyCitiesTotal] = useState<number | null>(null)
+  const [showNearbyCities, setShowNearbyCities] = useState(false) // P2: user-initiated "Show more"
   const [isPeakSeason, setIsPeakSeason] = useState(false)
   const [campgroundsUpdated, setCampgroundsUpdated] = useState<string>('')
   const todayStr = new Date().toISOString().slice(0, 10)
@@ -1390,6 +1392,7 @@ export default function Home() {
         if (cgRes.ok && cgData.results) {
           setCampgrounds(cgData.results)
           setNearbyCities(cgData.nearbyCities || [])
+          setNearbyCitiesTotal(cgData.originalTotal ?? null)
           setIsPeakSeason(cgData.peakSeason || false)
           setCampgroundsUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
         }
@@ -1693,31 +1696,47 @@ export default function Home() {
             city={city}
           />
           {/* Nearby cities suggestion + fallback to Google Places */}
+          {/* P2+P3: Better trigger — only show nearby panel when genuinely empty (not < 3) */}
           {(!campgroundsLoading && campgrounds.length === 0) && (
             <>
               {nearbyCities.length > 0 && (
                 <div className="nearby-cities-panel">
-                  <p className="nearby-label">📍 Thin results for <strong>{city}</strong> — try a nearby area:</p>
-                  <div className="nearby-city-chips">
-                    {nearbyCities.map(c => {
-                      // Strip the "(N parks)" suffix for the search query; keep full label for display
-                      const label = c
-                      const searchCity = c.replace(/\s*\(\d+\s*parks?\)\s*$/, '').trim()
-                      return (
-                        <button
-                          key={c}
-                          className="nearby-city-chip"
-                          onClick={() => {
-                            setCity(searchCity)
-                            window.scrollTo({ top: 0, behavior: 'smooth' })
-                            setNearbyCities([])
-                          }}
-                        >
-                          {label}
-                        </button>
-                      )
-                    })}
-                  </div>
+                  {nearbyCitiesTotal != null && nearbyCitiesTotal > 0 && (
+                    <p className="nearby-total-badge">📊 <strong>{city}</strong> area: ~{nearbyCitiesTotal} campgrounds found (Rec.gov + NPS + KOA combined)</p>
+                  )}
+                  <p className="nearby-label">📍 No direct matches for <strong>{city}</strong> — try a nearby area:</p>
+                  {!showNearbyCities && (
+                    <button
+                      className="show-nearby-btn"
+                      onClick={() => setShowNearbyCities(true)}
+                    >
+                      🔍 Show nearby cities ({nearbyCities.length})
+                    </button>
+                  )}
+                  {showNearbyCities && (
+                    <div className="nearby-city-chips">
+                      {nearbyCities.map(c => {
+                        // New format: "CityName, State · detail · Nmi" — extract city before first " · "
+                        const pipeIdx = c.indexOf(' · ')
+                        const displayLabel = pipeIdx >= 0 ? c.slice(0, pipeIdx) : c
+                        const detailPortion = pipeIdx >= 0 ? c.slice(pipeIdx) : ''
+                        return (
+                          <button
+                            key={c}
+                            className="nearby-city-chip"
+                            onClick={() => {
+                              setCity(displayLabel)
+                              window.scrollTo({ top: 0, behavior: 'smooth' })
+                              setNearbyCities([])
+                              setShowNearbyCities(false)
+                            }}
+                          >
+                            {displayLabel}{detailPortion}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
               {nearbyCities.length === 0 && (
