@@ -863,73 +863,106 @@ function ImportPanel() {
   }
 
   const fixGaps = async () => {
+    if (!tripData?.stops?.length) return
     setLoading(true);
-    const originalStops = [...tripData.stops];
-    const newStops = [];
+
+    // Deep-clone so we never mutate live state
+    const originalStops: any[] = tripData.stops.map((s: any) => ({ ...s }));
+    const newStops: any[] = [];
     let modified = false;
 
-    // Sequential Loop with Unique ID Generation for Each Stop
+    // Sequential: await each leg before moving to the next
     for (let i = 0; i < originalStops.length; i++) {
-        const stop = { ...originalStops[i] };
-        const prevStop = originalStops[i-1];
-        
-        if (prevStop && stop.miles > 300 && !stop.isAdlerSuggest && !stop.isFixed) {
-          modified = true;
-          const ratio = 250 / stop.miles;
-          const lat = parseFloat((prevStop.lat + (stop.lat - prevStop.lat) * ratio).toFixed(4));
-          const lng = parseFloat((prevStop.lng + (stop.lng - prevStop.lng) * ratio).toFixed(4));
+      const stop = { ...originalStops[i] };
+      const prevStop = originalStops[i - 1];
 
-          try {
-            // UNIQUE CACHE-BUSTING PER LEG REQUEST
-            const requestId = `gap-scout-${i}-${Math.random().toString(36).substr(2, 5)}-${Date.now()}`;
-            const scoutRes = await fetch(`/api/fix-gap?id=${requestId}&lat=${lat}&lng=${lng}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ startLat: prevStop.lat, startLng: prevStop.lng, endLat: stop.lat, endLng: stop.lng, distance: stop.miles })
-            });
-            const scoutData = await scoutRes.json();
-            
-            newStops.push({
-              id: requestId,
-              stopName: `🔍 Adler Scout: ${Math.round(stop.miles)}mi Leg Gap`,
-              lat: scoutData.midpoint.lat,
-              lng: scoutData.midpoint.lng,
-              miles: 250,
-              arrivalDate: prevStop.departureDate || '',
-              nights: 1,
-              isAdlerSuggest: true,
-              suggestions: scoutData.suggestions || [], // Unique per request
-              isCityWaypoint: false
-            });
-            
-            stop.miles = Math.round(stop.miles - 250);
-            stop.id = `rem-${i}-${Date.now()}`;
-          } catch (e) {
-            console.error("Gap scout failed:", e);
-          }
+      if (prevStop && stop.miles > 300 && !stop.isAdlerSuggest && !stop.isFixed) {
+        modified = true;
+        // Calculate the exact 250-mi mark along this leg
+        const ratio = 250 / stop.miles;
+        const scoutLat = parseFloat((prevStop.lat + (stop.lat - prevStop.lat) * ratio).toFixed(6));
+        const scoutLng = parseFloat((prevStop.lng + (stop.lng - prevStop.lng) * ratio).toFixed(6));
+
+        try {
+          // Stable, unique scout ID — does NOT change on re-renders
+          const scoutId = `scout-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}`;
+
+          const scoutRes = await fetch(`/api/fix-gap`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              startLat: prevStop.lat,
+              startLng: prevStop.lng,
+              endLat: stop.lat,
+              endLng: stop.lng,
+              distance: stop.miles,
+              scoutLat,
+              scoutLng,
+              prevCity: prevStop.city || prevStop.stopName || '',
+              nextCity: stop.city || stop.stopName || '',
+            }),
+          });
+
+          if (!scoutRes.ok) throw new Error(`HTTP ${scoutRes.status}`);
+          const scoutData = await scoutRes.json();
+
+          // Deduplicate suggestions against ALL previously collected parks in this run
+          const seenNames = new Set<string>();
+          newStops.forEach(s => s.suggestions?.forEach((sg: any) => seenNames.add(sg.name)));
+          const deduped = (scoutData.suggestions || []).filter((sg: any) => !seenNames.has(sg.name));
+
+          // Push the scout stop BEFORE the shortened original leg
+          newStops.push({
+            id: scoutId,
+            stopName: `🔍 Scout: ${Math.round(stop.miles)}mi leg`,
+            lat: scoutLat,
+            lng: scoutLng,
+            miles: 250,
+            arrivalDate: prevStop.departureDate || '',
+            nights: 1,
+            isAdlerSuggest: true,
+            suggestions: deduped,
+            isCityWaypoint: false,
+          });
+
+          // Shorten the original leg — give it a stable id (based on original stop.id or index)
+          stop.miles = Math.round(stop.miles - 250);
+          stop.id = stop.id || `leg-${Date.now()}-${i}`;
+        } catch (e) {
+          console.error('[fixGaps] scout fetch failed:', e);
         }
-        newStops.push(stop);
+      }
+
+      // Preserve original id; assign stable fallback if missing
+      if (!stop.id) stop.id = `orig-${Date.now()}-${i}`;
+      newStops.push(stop);
     }
-    
+
     if (modified) {
-      setTripData({ ...tripData, stops: newStops, stopCount: newStops.length });
+      // Functional update avoids stale-closure issues
+      setTripData((prev: any) => ({ ...prev, stops: newStops, stopCount: newStops.length }));
     }
     setLoading(false);
   }
 
-  const selectSuggestion = (stopIndex: number, suggestion: any) => {
-    const updatedStops = [...tripData.stops];
-    updatedStops[stopIndex] = {
-      ...updatedStops[stopIndex],
-      stopName: suggestion.name,
-      lat: suggestion.lat,
-      lng: suggestion.lng,
-      url: suggestion.url,
-      isAdlerSuggest: false,
-      isFixed: true,
-      suggestions: []
-    }
-    setTripData({ ...tripData, stops: updatedStops });
+  const selectSuggestion = (scoutId: string, suggestion: any) => {
+    // Find by stable scoutId — immune to array index shifts
+    setTripData((prev: any) => ({
+      ...prev,
+      stops: prev.stops.map((s: any) => {
+        if (s.id !== scoutId) return s;
+        return {
+          ...s,
+          stopName: suggestion.name,
+          lat: suggestion.lat ?? s.lat,
+          lng: suggestion.lng ?? s.lng,
+          url: suggestion.url || s.url,
+          isAdlerSuggest: false,
+          isFixed: true,
+          suggestions: [],
+        };
+      }),
+    }));
   }
 
   return (
@@ -985,10 +1018,9 @@ function ImportPanel() {
           <div className="stop-list">
             {tripData.stops.map((stop: any, i: number) => {
               const driveAlert = !stop.isAdlerSuggest && stop.miles > 300
-              const uniqueKey = stop.id || `${i}-${stop.stopName}`;
 
               return (
-                <div key={uniqueKey} className={`stop-item ${stop.isAdlerSuggest ? 'adler-suggest' : ''}`} style={stop.isAdlerSuggest ? {border:'2px dashed #ff9500'} : {}}>
+                <div key={stop.id || `stop-${i}`} className={`stop-item ${stop.isAdlerSuggest ? 'adler-suggest' : ''}`} style={stop.isAdlerSuggest ? {border:'2px dashed #ff9500'} : {}}>
                   <div className="stop-main">
                     <span className="stop-num">{i + 1}</span>
                     <div className="stop-info">
@@ -1000,26 +1032,29 @@ function ImportPanel() {
                     {driveAlert && <span className="warning-badge">⚠️ {stop.miles}mi</span>}
                   </div>
                   
-                  {stop.isAdlerSuggest && stop.suggestions && (
+                  {stop.isAdlerSuggest && stop.suggestions && stop.suggestions.length > 0 && (
                     <div className="scout-suggestions" style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <p style={{ fontSize: '0.85rem', color: '#ff9500', margin: '0 0 4px', fontWeight: 800 }}>OPTIONS FOR THIS LEG:</p>
                       {stop.suggestions.map((sug: any, j: number) => (
-                        <div key={`${uniqueKey}-${j}`} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.06)', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        <div key={`${stop.id}-sug-${j}`} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.06)', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)' }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{sug.name}</div>
                             <div style={{ fontSize: '0.7rem', color: '#8a9aaa' }}>{sug.location || ""}</div>
-                            <a href={sug.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: '#007aff', textDecoration: 'underline' }}>Official Website</a>
+                            {sug.url && <a href={sug.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: '#007aff', textDecoration: 'underline' }}>Official Website</a>}
                           </div>
-                          <button 
-                            className="mode-btn" 
+                          <button
+                            className="mode-btn"
                             style={{ background: '#34c759', padding: '8px 14px', fontSize: '11px', fontWeight: 800 }}
-                            onClick={() => selectSuggestion(i, sug)}
+                            onClick={() => selectSuggestion(stop.id, sug)}
                           >
                             ADD
                           </button>
                         </div>
                       ))}
                     </div>
+                  )}
+                  {stop.isAdlerSuggest && (!stop.suggestions || stop.suggestions.length === 0) && (
+                    <p style={{ fontSize: '0.75rem', color: '#8a9aaa', marginTop: '0.5rem' }}>No suggestions — check Brave API key or try again.</p>
                   )}
                 </div>
               )
