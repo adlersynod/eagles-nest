@@ -513,22 +513,17 @@ export async function GET(request: NextRequest) {
   // ── Try Nearby Cities ─────────────────────────────────────────────────────────
   let nearbyCities: string[] = []
   if (allResults.length < 3) {
-    const NEARBY_MAP: Record<string, string[]> = {
-      'mount hood': ['Government Camp', 'Welches', 'Zigzag', 'Sandy'],
-      'portland': ['Estacada', 'Oregon City', 'Vancouver', 'Mount Hood'],
-      'seattle': ['Tacoma', 'Everett', 'Bellevue', 'Issaquah'],
-      'eugene': ['Cottage Grove', 'Oakridge', 'Lowell'],
-      'bend': ['Sunriver', 'Sisters', 'La Pine', 'Redmond'],
-      'ashland': ['Medford', 'Grants Pass', 'Phoenix'],
-      'olympic': ['Port Townsend', 'Sequim', 'Forks'],
-      'mt hood': ['Government Camp', 'Welches', 'Zigzag', 'Sandy'],
-    }
-    const cityLower = citySanitized.toLowerCase()
-    for (const [key, cities] of Object.entries(NEARBY_MAP)) {
-      if (cityLower.includes(key)) {
-        nearbyCities = cities
-        break
+    try {
+      const ncRes = await fetch(
+        `${request.nextUrl.origin}/api/nearby-cities?city=${encodeURIComponent(citySanitized)}`,
+        { headers: { 'User-Agent': 'EaglesNest/1.0' }, signal: AbortSignal.timeout(12000) }
+      )
+      if (ncRes.ok) {
+        const ncData = await ncRes.json()
+        nearbyCities = ncData.nearbyCities || []
       }
+    } catch {
+      // nearby cities are optional — don't break campground search
     }
   }
 

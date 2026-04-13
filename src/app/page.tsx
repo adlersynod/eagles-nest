@@ -1699,9 +1699,24 @@ export default function Home() {
                 <div className="nearby-cities-panel">
                   <p className="nearby-label">📍 Thin results for <strong>{city}</strong> — try a nearby area:</p>
                   <div className="nearby-city-chips">
-                    {nearbyCities.map(c => (
-                      <button key={c} className="nearby-city-chip" onClick={() => { setCity(c); window.scrollTo({ top: 0, behavior: 'smooth' }); setNearbyCities([]); }}>{c}</button>
-                    ))}
+                    {nearbyCities.map(c => {
+                      // Strip the "(N parks)" suffix for the search query; keep full label for display
+                      const label = c
+                      const searchCity = c.replace(/\s*\(\d+\s*parks?\)\s*$/, '').trim()
+                      return (
+                        <button
+                          key={c}
+                          className="nearby-city-chip"
+                          onClick={() => {
+                            setCity(searchCity)
+                            window.scrollTo({ top: 0, behavior: 'smooth' })
+                            setNearbyCities([])
+                          }}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               )}
