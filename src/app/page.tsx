@@ -45,6 +45,7 @@ type CampgroundResult = {
   vacancyNote: string
   bigRigScore: number
   bigRigNotes: string[]
+  starlinkScore?: number
   nearestServices?: {
     gasStation?: string; gasDistanceMi?: number
     groceryStore?: string; groceryDistanceMi?: number
@@ -390,6 +391,12 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHe
 
   return (
     <div className="place-card">
+      {/* Starlink Overlay Badge */}
+      {camp.starlinkScore != null && (
+        <div className={`starlink-overlay-badge ${camp.starlinkScore > 80 ? 'starlink-safe' : camp.starlinkScore > 50 ? 'starlink-warn' : 'starlink-danger'}`}>
+          🛰️ Starlink {camp.starlinkScore}%
+        </div>
+      )}
       {camp.photoUrl && (
         <ExternalLink href={camp.mapUrl || camp.bookingUrl || '#'} className="card-photo-link">
           <div className="card-photo">

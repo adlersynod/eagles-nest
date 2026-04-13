@@ -1,1 +1,16 @@
-{"projectId":"prj_sKBFHRLCflvNWEbPWSTrVXgcrPK5","orgId":"team_OLvLyoNXvphoiW55qipda4ha","projectName":"eagles-nest"}
+{
+  "projectId": "prj_sKBFHRLCflvNWEbPWSTrVXgcrPK5",
+  "orgId": "team_OLvLyoNXvphoiW55qipda4ha",
+  "projectName": "eagles-nest",
+  "settings": {
+    "createdAt": 1775819751687,
+    "framework": "vite",
+    "devCommand": null,
+    "installCommand": null,
+    "buildCommand": null,
+    "outputDirectory": null,
+    "rootDirectory": null,
+    "directoryListing": false,
+    "nodeVersion": "24.x"
+  }
+}
