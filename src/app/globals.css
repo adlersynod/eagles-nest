@@ -295,6 +295,15 @@ body {
   text-transform: uppercase;
 }
 
+.category-badge-nps {
+  background: rgba(30, 80, 60, 0.85);
+  border: 1px solid rgba(110, 231, 160, 0.4);
+  max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── Card Body ──────────────────────────────────── */
 .card-body {
   padding: 0.85rem 1rem 1rem;
@@ -1634,6 +1643,32 @@ body {
 .campendium-badge:hover {
   background: #2d1f45;
   color: #c4b5fd;
+}
+
+.nps-row {
+  padding: 4px 0 2px;
+}
+
+.nps-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 0.73rem;
+  color: #6ee7a0;
+  background: rgba(110, 231, 160, 0.08);
+  border: 1px solid rgba(110, 231, 160, 0.3);
+  border-radius: 6px;
+  padding: 3px 8px;
+  text-decoration: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nps-badge:hover {
+  background: rgba(110, 231, 160, 0.15);
+  color: #a7f3d0;
 }
 
 /* ── Alert Preferences ─────────────────────────────────────────────── */

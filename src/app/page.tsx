@@ -59,6 +59,10 @@ type CampgroundResult = {
     url: string; reviewCount: number; summary: string
     cellRating: string; pullThrough: boolean; levelSites: boolean
   }
+  nps?: {
+    parkName: string; url: string; description: string
+    entranceFees: string; contactPhone: string
+  }
 }
 
 type AlertPrefs = {
@@ -406,7 +410,7 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHe
               <div className="card-photo-placeholder"><span>🏕️</span></div>
             )}
             <div className="card-photo-overlay">
-              <span className="category-badge">RV Park</span>
+              <span className={`category-badge ${camp.nps ? 'category-badge-nps' : ''}`}>{camp.nps ? '🏛️ NPS · ' + camp.nps.parkName : 'RV Park'}</span>
               <span className="vacancy-badge">
                 {vacancy.badge} {vacancy.label}
               </span>
@@ -473,6 +477,16 @@ function CampgroundCard({ camp, rangeStart, rangeEnd, isPeakSeason, onWalkFromHe
               {camp.campendium.cellRating ? ` · 📶 Cell ${camp.campendium.cellRating}` : ''}
               {camp.campendium.pullThrough ? ' · 🔄 Pull-through sites' : ''}
               {camp.campendium.levelSites ? ' · ⬜ Level sites' : ''}
+            </ExternalLink>
+          </div>
+        )}
+        {/* NPS campground info */}
+        {camp.nps && (
+          <div className="nps-row">
+            <ExternalLink href={camp.nps.url} className="nps-badge">
+              🏛️ NPS · {camp.nps.parkName}
+              {camp.nps.entranceFees ? ` · ${camp.nps.entranceFees}` : ''}
+              {camp.nps.contactPhone ? ` · 📞 ${camp.nps.contactPhone}` : ''}
             </ExternalLink>
           </div>
         )}

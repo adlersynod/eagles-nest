@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import ooklaUsCells from '@/lib/ookla_us_cells.json'
-
 type CampgroundResult = {
   name: string
   rating: number | null
@@ -29,13 +27,33 @@ type CampgroundResult = {
     cellRating: string; pullThrough: boolean; levelSites: boolean
     officialUrl?: string; bookingType?: string
   }
+  nps?: {
+    parkName: string; url: string; description: string
+    entranceFees: string; contactPhone: string
+  }
 }
 
+import { createRequire } from 'module'
+const _require = createRequire(import.meta.url)
+
 // ── Ookla Cell Coverage Lookup ────────────────────────────────────────────────
-// Bundled from src/lib/ookla_us_cells.json — real speedtest data at zoom-9 (~5km cells)
 // 2,669 US cells, real RVer speedtests from Ookla Open Data
 type OoklaCell = { d: number; u: number; lat: number; tier: number; tests: number; n: number; lat_qk: number; lon_qk: number }
-const OOKLA_CELLS = ooklaUsCells as Record<string, OoklaCell>
+
+// Ookla cells — lazy-loaded on first cell signal lookup (316KB saved from cold-start bundle)
+let _ooklaCache: Record<string, OoklaCell> | null = null
+async function getOoklaCells(): Promise<Record<string, OoklaCell>> {
+  if (_ooklaCache) return _ooklaCache
+  try {
+    const mod = _require('@/lib/ookla_us_cells.json') as { default?: Record<string, OoklaCell> } & Record<string, OoklaCell>
+    _ooklaCache = (mod && 'default' in mod && mod.default) ? mod.default : mod
+  } catch {
+    _ooklaCache = {}
+  }
+  return _ooklaCache
+}
+
+const NPS_FETCH_TIMEOUT = 8000 // ms
 
 function latLonToQuadkey9(lat: number, lon: number): string {
   const z = 9, n = 2 ** z
@@ -55,9 +73,9 @@ function latLonToQuadkey9(lat: number, lon: number): string {
 
 // ── Cell Signal Estimate (Ookla primary + Google Places fallback) ─────────────
 async function fetchCellSignal(lat: number, lng: number): Promise<CampgroundResult['cellSignal']> {
-  // ── Source 1: Ookla speedtest data (real RVer measurements) ──
+  // ── Source 1: Ookla speedtest data (real RVer measurements) — lazy-loaded on first use ──
   try {
-    const cache = OOKLA_CELLS
+    const cache = await getOoklaCells()
     if (!cache || Object.keys(cache).length === 0) {
       console.error('[cell] OOKLA_CELLS empty, keys:', Object.keys(cache || {}).length)
     } else {
@@ -174,7 +192,145 @@ async function fetchRecreationGov(city: string): Promise<CampgroundResult[]> {
   } catch { return [] }
 }
 
+
+// ── NPS Campground Search ──────────────────────────────────────────────────────
+type NPSCampground = {
+  name: string; parkName: string; url: string
+  lat?: number; lng?: number; description: string
+  entranceFees: string; contactPhone: string
+  amenities: string[]; bigRigScore: number; bigRigNotes: string[]
+}
+
+function mapNPSCampground(camp: Record<string, unknown>): NPSCampground {
+  const name = String(camp.name || '')
+  const parkName = String(camp.parkName || '')
+  const url = String(camp.url || '')
+  const description = String(camp.description || '').replace(/<[^>]+>/g, '').substring(0, 200)
+  const entranceFees = Array.isArray(camp.entranceFees)
+    ? (camp.entranceFees as Array<{ title: string; cost: string }>).map(f => `${f.title}: ${f.cost}`).join(', ')
+    : String(camp.entranceFee || '')
+  const contacts = camp.contacts as Record<string, unknown> | undefined
+  const phoneNumbers = contacts?.phoneNumbers as Array<{ type: string; phoneNumber: string }> | undefined
+  const contactPhone = Array.isArray(phoneNumbers) ? phoneNumbers[0]?.phoneNumber || '' : ''
+  const amenities = camp.amenities as Record<string, unknown> | undefined
+  const amenityList = amenities
+    ? [...((amenities.recreationAreas as string[]) || []), ...((amenities.amenities as string[]) || [])].filter(Boolean)
+    : []
+  const ada = camp.accessibleProgram === 'Yes' ? 1.5 : 0
+  const hasElectric = amenityList.some(a => /electric|hookup/i.test(a)) ? 1.0 : 0
+  const hasWater = amenityList.some(a => /water|sewer|dump/i.test(a)) ? 0.5 : 0
+  const isReservable = camp.reservationUrl ? 1.0 : 0
+  const hasParking = camp.parkingApplies || camp.parkingFee !== undefined ? 0.5 : 0
+  const bigRigScore = Math.round(Math.min(5, Math.max(1, ada + hasElectric + hasWater + isReservable + hasParking)) * 10) / 10
+  const bigRigNotes: string[] = []
+  if (ada >= 1.5) bigRigNotes.push('ADA accessible')
+  if (hasElectric >= 1.0) bigRigNotes.push('Electrical hookups')
+  if (hasWater >= 0.5) bigRigNotes.push('Water/sewer hookups')
+  if (isReservable >= 1.0) bigRigNotes.push('Reservable')
+  if (parkName) bigRigNotes.push(`Part of ${parkName}`)
+  return {
+    name: name.replace(parkName, '').trim() || parkName,
+    parkName, url,
+    lat: camp.latitude as number, lng: camp.longitude as number,
+    description, entranceFees, contactPhone,
+    amenities: amenityList.slice(0, 8), bigRigScore, bigRigNotes,
+  }
+}
+
+async function fetchNPSCampgrounds(city: string): Promise<CampgroundResult[]> {
+  const apiKey = process.env.NPS_API_KEY
+  if (!apiKey) return []
+  let lat: number, lng: number, cityName: string
+  try {
+    const geoRes = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&feature=city,settlement`,
+      { signal: AbortSignal.timeout(NPS_FETCH_TIMEOUT) }
+    )
+    if (!geoRes.ok) return []
+    const geoData = await geoRes.json()
+    const first = geoData.results?.[0]
+    if (!first) return []
+    lat = first.latitude; lng = first.longitude; cityName = first.name || city
+  } catch { return [] }
+
+  try {
+    // NPS lat/lng filter for campgrounds is confirmed broken — work around by
+    // first finding nearby parks, then fetching campgrounds per parkCode.
+    const parksUrl = `https://developer.nps.gov/api/v1/parks?limit=5&lat=${lat}&lng=${lng}&radius=60&api_key=${apiKey}&q=national+park`
+    const parksRes = await fetch(parksUrl, { signal: AbortSignal.timeout(NPS_FETCH_TIMEOUT) })
+    if (!parksRes.ok) return []
+    const parksData = await parksRes.json()
+    const parks = (parksData.data || []) as Array<{
+      fullName: string; parkCode: string; latitude: number; longitude: number
+      designation: string; url: string; description: string
+    }>
+    if (parks.length === 0) return []
+
+    // Fetch campgrounds for top 3 nearest parks
+    const campResults = await Promise.all(
+      parks.slice(0, 3).map(p =>
+        fetch(`https://developer.nps.gov/api/v1/campgrounds?parkCode=${p.parkCode}&limit=8&api_key=${apiKey}`, { signal: AbortSignal.timeout(NPS_FETCH_TIMEOUT) })
+          .then(r => r.ok ? r.json().catch(() => null) : null)
+          .then(d => {
+            if (!d) return []
+            return (d.data || []) as Record<string, unknown>[]
+          })
+          .catch(() => [] as Record<string, unknown>[])
+      )
+    )
+
+    const allCamps = campResults.flat()
+    if (allCamps.length === 0) return []
+
+    return allCamps.slice(0, 8).map(camp => {
+      const entranceFees = Array.isArray(camp.fees)
+        ? (camp.fees as Array<{ title: string; cost: string }>).map(f => `${f.title}: ${f.cost}`).join(', ')
+        : String(camp.entranceFee || '')
+      const contacts = (camp.contacts as Record<string, unknown> | undefined)
+      const phoneNumbers = contacts?.phoneNumbers as Array<{ phoneNumber: string }> | undefined
+      const contactPhone = Array.isArray(phoneNumbers) ? phoneNumbers[0]?.phoneNumber || '' : ''
+      const amenities = camp.amenities as Record<string, unknown> | undefined
+      const amenityList = amenities
+        ? [...((amenities.recreationAreas as string[]) || []), ...((amenities.amenities as string[]) || [])].filter(Boolean)
+        : []
+      const isReservable = Boolean(camp.reservationUrl)
+      const bigRigScore = Math.round(Math.min(5, Math.max(1, (isReservable ? 1.5 : 0) + 1.0)) * 10) / 10
+
+      // Find which park this camp belongs to
+      const campLat = camp.latitude as number
+      const campLng = camp.longitude as number
+      const nearestPark = parks.reduce((best, p) => {
+        const d = Math.sqrt((p.latitude - campLat) ** 2 + (p.longitude - campLng) ** 2)
+        return d < best.dist ? { park: p, dist: d } : best
+      }, { park: parks[0], dist: 9999 }).park
+
+      return {
+        name: String(camp.name || ''),
+        rating: null,
+        price: entranceFees || null,
+        amenities: amenityList.slice(0, 8),
+        photoUrl: null,
+        bookingUrl: (camp.reservationUrl as string) || (camp.url as string) || null,
+        mapUrl: campLat ? `https://www.google.com/maps/search/?api=1&query=${campLat},${campLng}` : null,
+        lat: campLat, lng: campLng,
+        vacancyStatus: 'unknown' as const,
+        vacancyNote: 'Check NPS website for availability',
+        bigRigScore,
+        bigRigNotes: ['NPS Campground', ...(isReservable ? ['Reservable'] : []), `Part of ${nearestPark.fullName}`],
+        nps: {
+          parkName: nearestPark.fullName,
+          url: (camp.url as string) || nearestPark.url || 'https://www.nps.gov',
+          description: String(camp.description || '').replace(/<[^>]+>/g, '').substring(0, 200),
+          entranceFees,
+          contactPhone,
+        },
+      } satisfies CampgroundResult
+    })
+  } catch { return [] }
+}
+
 // ── Nearby Services ───────────────────────────────────────────────────────────
+
 // ── Nearby Services ────────────────────────────────────────────────────────────
 async function fetchNearbyServices(lat: number, lng: number, apiKey: string) {
   const results: Record<string, { name: string; distanceMi: number } | null> = {
@@ -497,9 +653,10 @@ export async function GET(request: NextRequest) {
   const citySanitized = city.replace(/[^a-zA-Z0-9\\s\-\\.,']/g, '').trim()
 
   // Fetch from Recreation.gov + Campendium in parallel
-  const [recreationResults, campendiumResults]: [CampgroundResult[], CampgroundResult[]] = await Promise.all([
+  const [recreationResults, campendiumResults, npsResults]: [CampgroundResult[], CampgroundResult[], CampgroundResult[]] = await Promise.all([
     fetchRecreationGov(citySanitized),
     fetchCampendiumCampgrounds(citySanitized),
+    fetchNPSCampgrounds(citySanitized),
   ])
 
   // Merge and deduplicate
